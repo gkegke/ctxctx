@@ -1,0 +1,38 @@
+# Python
+*.pyc
+__pycache__/
+.venv/
+env/
+venv/
+.pytest_cache/
+.coverage
+.mypy_cache/
+.DS_Store
+
+# Poetry
+.python-version
+.poetry/
+poetry.lock
+
+# IDEs
+.idea/
+.vscode/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs and temp files
+logs/
+temp/
+tmp/
+
+# Specific to this project's own output
+prompt_input_files.md
+prompt_input_files.json
+@cargs
+compare
+functional_dependencies
+Plan.md
+prompts/

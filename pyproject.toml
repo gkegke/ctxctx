@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ctxctx"
-version = "0.3.0"
+version = "0.3.1"
 description = "Intelligently select, format, and present relevant project files and directory structure as context for LLMs."
 authors = ["Toomes Gud <toomesgud@gmail.com>"]
 license = "MIT"
@@ -37,7 +37,7 @@ pyfakefs = "^5.3.0" # For mocking file system
 yaml = ["PyYAML"]
 
 [tool.poetry.scripts]
-ctx = "ctxctx.cli:main"
+ctxctx = "ctxctx.cli:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

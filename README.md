@@ -28,26 +28,26 @@ This results in **more focused, relevant, and accurate responses** from your LLM
 ### 🚀 Getting Started
 
 1.  **Installation:**
-    Install `ctx` directly from PyPI:
+    Install `ctxctx` directly from PyPI:
     ```bash
-    pip install ctx
+    pip install ctxctx
     ```
     If you plan to use [Context Profiles](#7-pre-defined-context-profiles), install with the `yaml` extra:
     ```bash
-    pip install "ctx[yaml]"
+    pip install "ctxctx[yaml]"
     ```
     Alternatively, if cloning the repository for development:
     ```bash
-    git clone https://github.com/your-username/llm-context-builder.git
+    git clone https://github.com/gkegke/ctxctx.git
     cd llm-context-builder
     # Install with poetry (recommended for development)
     poetry install --with dev
     ```
 
 2.  **Basic Usage:**
-    Once installed, you can use the `ctx` command directly from your terminal in any project directory:
+    Once installed, you can use the `ctxctx` command directly from your terminal in any project directory:
     ```bash
-    ctx
+    ctxctx
     ```
     This will generate `prompt_input_files.md` and `prompt_input_files.json` containing only the directory tree of your project, up to a default depth of 3.
 
@@ -84,7 +84,7 @@ The tool outputs its results into `prompt_input_files.md` (Markdown) and `prompt
 The simplest way to get context is just to include your project's directory structure. This gives the LLM a high-level overview of your project's layout, which is often very helpful.
 
 ```bash
-ctx
+ctxctx
 ```
 This will generate `prompt_input_files.md` and `prompt_input_files.json` containing only the directory tree of your project, up to a default depth of 3.
 
@@ -94,19 +94,19 @@ The most common use case is to provide the content of a few specific files or al
 
 *   **Include a single file:**
     ```bash
-    ctx src/main.py
+    ctxctx src/main.py
     ```
 *   **Include multiple files:**
     ```bash
-    ctx src/utils.js README.md
+    ctxctx src/utils.js README.md
     ```
 *   **Include all files within a folder (recursively, up to `SEARCH_MAX_DEPTH`):**
     ```bash
-    ctx config/
+    ctxctx config/
     ```
 *   **Combine files and folders:**
     ```bash
-    ctx tests/backend/ src/data_models.py
+    ctxctx tests/backend/ src/data_models.py
     ```
 
 #### 3. Ignoring Files & Folders
@@ -136,13 +136,13 @@ For very precise context, you can include one or more specific ranges of lines f
 *   **Syntax:** `filepath:start1,end1:start2,end2...` (lines are 1-indexed and inclusive).
 *   **Example (Single Range):**
     ```bash
-    ctx 'src/api/user_routes.py:100,150'
+    ctxctx 'src/api/user_routes.py:100,150'
     ```
     This will include lines 100 through 150 from `src/api/user_routes.py`.
 
 *   **Example (Multiple Ranges):**
     ```bash
-    ctx 'src/data_processor.py:20,45:200,215'
+    ctxctx 'src/data_processor.py:20,45:200,215'
     ```
     This will include lines 20-45 and 200-215 from the same file, with a comment indicating the omitted lines in between.
 
@@ -154,25 +154,25 @@ Glob patterns provide a powerful way to select multiple files based on wildcards
 *   **Example:**
     *   **All Python files:**
         ```bash
-        ctx '*.py'
+        ctxctx '*.py'
         ```
     *   **All JavaScript or TypeScript files within `src/` and its subdirectories:**
         ```bash
-        ctx 'src/**/*.{js,ts}' # (Note: Shell might expand {js,ts}, quote carefully or run in a compatible shell)
+        ctxctx 'src/**/*.{js,ts}' # (Note: Shell might expand {js,ts}, quote carefully or run in a compatible shell)
         # Safer alternative for cross-platform (multiple arguments):
-        ctx 'src/**/*.js' 'src/**/*.ts'
+        ctxctx 'src/**/*.js' 'src/**/*.ts'
         ```
     *   **All Markdown files in the root or `docs/` folder:**
         ```bash
-        ctx '*.md' 'docs/*.md'
+        ctxctx '*.md' 'docs/*.md'
         ```
 
 #### 6. Passing Arguments from a File
 
-For very long or complex `ctx` commands, or for commands you use frequently, you can store your queries and flags in a text file and pass that file to `ctx`. This helps keep your terminal commands clean and makes them easily repeatable.
+For very long or complex `ctxctx` commands, or for commands you use frequently, you can store your queries and flags in a text file and pass that file to `ctxctx`. This helps keep your terminal commands clean and makes them easily repeatable.
 
-*   **Syntax:** `ctx @filename`
-*   **How it works:** `ctx` will read each line from the specified file as if it were a separate command-line argument. Lines starting with `#` are treated as comments and ignored.
+*   **Syntax:** `ctxctx @filename`
+*   **How it works:** `ctxctx` will read each line from the specified file as if it were a separate command-line argument. Lines starting with `#` are treated as comments and ignored.
 
 *   **Example `my_queries.txt`:**
     ```
@@ -185,11 +185,11 @@ For very long or complex `ctx` commands, or for commands you use frequently, you
     ```
 *   **Usage:**
     ```bash
-    ctx @my_queries.txt
+    ctxctx @my_queries.txt
     ```
     This command would be equivalent to running:
     ```bash
-    ctx src/main.py 'tests/unit/test_config.py:10,25:50,60' '*.md' docs/api/ --profile backend_dev
+    ctxctx src/main.py 'tests/unit/test_config.py:10,25:50,60' '*.md' docs/api/ --profile backend_dev
     ```
 
 #### 7. Pre-defined Context Profiles
@@ -229,12 +229,12 @@ For common tasks, you can define **profiles** in an external `prompt_profiles.ya
 
 2.  **Use a profile:**
     ```bash
-    ctx --profile backend_api
-    ctx --profile refactor_task
+    ctxctx --profile backend_api
+    ctxctx --profile refactor_task
     ```
     You can also combine profiles with additional ad-hoc queries:
     ```bash
-    ctx --profile frontend 'public/index.html'
+    ctxctx --profile frontend 'public/index.html'
     ```
 
 #### 8. Output Formats (Markdown & JSON)
@@ -251,14 +251,14 @@ You can configure which formats are generated in the `CONFIG` dictionary (or via
 Test your queries and configurations without writing any files. The full output will be printed directly to your console.
 
 ```bash
-ctx --dry-run 'src/config.py' '*.md'
+ctxctx --dry-run 'src/config.py' '*.md'
 ```
 
 ---
 
 ### ⚙️ Configuration
 
-The tool's behavior can be customized by modifying the `DEFAULT_CONFIG` dictionary within `ctx/config.py` (for source changes) or overridden by values defined in your `prompt_profiles.yaml`.
+The tool's behavior can be customized by modifying the `DEFAULT_CONFIG` dictionary within `ctxctx/config.py` (for source changes) or overridden by values defined in your `prompt_profiles.yaml`.
 
 Key configurable options include:
 

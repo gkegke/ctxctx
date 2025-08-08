@@ -15,7 +15,7 @@ _DEFAULT_CONFIG_TEMPLATE: Dict[str, Any] = {
     "TREE_EXCLUDE_EMPTY_DIRS": False,
     "SEARCH_MAX_DEPTH": 5,
     "MAX_MATCHES_PER_QUERY": 5,
-    "EXPLICIT_IGNORE_NAMES": FrozenSet(
+    "EXPLICIT_IGNORE_NAMES": frozenset(
         {
             ".git",
             ".gitignore",
@@ -63,7 +63,7 @@ def get_default_config() -> Dict[str, Any]:
     # Convert immutable types back to mutable ones for CONFIG object's use
     default_copy["OUTPUT_FORMATS"] = list(cast(Tuple[str, ...], default_copy["OUTPUT_FORMATS"]))
     default_copy["EXPLICIT_IGNORE_NAMES"] = set(
-        cast(frozenset[str], default_copy["EXPLICIT_IGNORE_NAMES"])
+        cast(FrozenSet[str], default_copy["EXPLICIT_IGNORE_NAMES"])
     )
     default_copy["SUBSTRING_IGNORE_PATTERNS"] = list(
         cast(Tuple[str, ...], default_copy["SUBSTRING_IGNORE_PATTERNS"])

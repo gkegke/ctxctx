@@ -32,7 +32,7 @@ This results in **more focused, relevant, and accurate responses** from your LLM
     ```bash
     pip install ctxctx
     ```
-    If you plan to use [Context Profiles](#7-pre-defined-context-profiles), install with the `yaml` extra:
+    If you plan to use [Context Profiles](#8-pre-defined-context-profiles), install with the `yaml` extra:
     ```bash
     pip install "ctxctx[yaml]"
     ```
@@ -63,13 +63,18 @@ This results in **more focused, relevant, and accurate responses** from your LLM
       - [1. Basic Usage: Include Directory Tree](#1-basic-usage-include-directory-tree)
       - [2. Including Specific Files \& Folders](#2-including-specific-files--folders)
       - [3. Ignoring Files \& Folders](#3-ignoring-files--folders)
-      - [4. Targeting Specific Line Ranges](#4-targeting-specific-line-ranges)
-      - [5. Using Glob Patterns for Flexible Selection](#5-using-glob-patterns-for-flexible-selection)
-      - [6. Passing Arguments from a File](#6-passing-arguments-from-a-file)
-      - [7. Pre-defined Context Profiles](#7-pre-defined-context-profiles)
-      - [8. Output Formats (Markdown \& JSON)](#8-output-formats-markdown--json)
-      - [9. Dry Run Mode](#9-dry-run-mode)
+      - [4. Force Including Files \& Folders (Override Ignores)](#4-force-including-files--folders-override-ignores)
+      - [5. Targeting Specific Line Ranges](#5-targeting-specific-line-ranges)
+      - [6. Using Glob Patterns for Flexible Selection](#6-using-glob-patterns-for-flexible-selection)
+      - [7. Passing Arguments from a File](#7-passing-arguments-from-a-file)
+      - [8. Pre-defined Context Profiles](#8-pre-defined-context-profiles)
+      - [9. Output Formats (Markdown \& JSON)](#9-output-formats-markdown--json)
+      - [10. Dry Run Mode](#10-dry-run-mode)
     - [⚙️ Configuration](#️-configuration)
+    - [🪵 Logging Configuration](#-logging-configuration)
+      - [Console Output](#console-output)
+      - [File-based Logging](#file-based-logging)
+      - [Benefits for CI/CD](#benefits-for-cicd)
     - [🤝 Contributing](#-contributing)
     - [📄 License](#-license)
 
@@ -129,7 +134,41 @@ Crucial for large projects! The tool uses a robust ignore system to ensure you d
     test_data/temp_files/
     ```
 
-#### 4. Targeting Specific Line Ranges
+#### 4. Force Including Files & Folders (Override Ignores)
+
+Sometimes, you want to include a file or folder that is normally ignored by `ctxctx`'s default rules, `.gitignore`, or your custom `prompt_builder_ignore.txt`. The "force include" feature allows you to explicitly override these ignore rules for specific paths.
+
+*   **Syntax:** Prefix the file or folder path (or glob pattern) with `!` (exclamation mark).
+*   **How it works:** When `ctxctx` encounters a query starting with `!`, it marks that path as "force included". During processing, if a file matches *any* ignore rule, `ctxctx` first checks if it's explicitly force-included. If it is, the file will be included in the context, regardless of other ignore patterns.
+
+*   **Examples:**
+    *   **Force include a specific log file:**
+        ```bash
+        ctxctx '!debug.log'
+        ```
+        (Even if `*.log` is in your `.gitignore` or `debug.log` is in `prompt_builder_ignore.txt`, it will be included.)
+
+    *   **Force include a file inside an ignored directory:**
+        ```bash
+        ctxctx '!node_modules/my_custom_module/index.js'
+        ```
+        (Normally `node_modules` is ignored, but this specific file will be included.)
+
+    *   **Force include all build artifacts (using a glob):**
+        ```bash
+        ctxctx '!build/**/*.js'
+        ```
+        (If your `build` directory is typically ignored, this will include all JavaScript files within it.)
+
+    *   **Combine force-include with line ranges:**
+        ```bash
+        ctxctx '!temp/sensitive_data.py:10,20'
+        ```
+        (Includes only lines 10-20 from `sensitive_data.py`, even if `temp/` is ignored.)
+
+This feature provides granular control, ensuring that critical files are always part of your LLM context, even if they would otherwise be filtered out.
+
+#### 5. Targeting Specific Line Ranges
 
 For very precise context, you can include one or more specific ranges of lines from a file. This is perfect for focusing on a few key sections of code for debugging or refactoring. The output will clearly mark the included line ranges and indicate where content has been omitted.
 
@@ -146,7 +185,7 @@ For very precise context, you can include one or more specific ranges of lines f
     ```
     This will include lines 20-45 and 200-215 from the same file, with a comment indicating the omitted lines in between.
 
-#### 5. Using Glob Patterns for Flexible Selection
+#### 6. Using Glob Patterns for Flexible Selection
 
 Glob patterns provide a powerful way to select multiple files based on wildcards.
 
@@ -167,7 +206,7 @@ Glob patterns provide a powerful way to select multiple files based on wildcards
         ctxctx '*.md' 'docs/*.md'
         ```
 
-#### 6. Passing Arguments from a File
+#### 7. Passing Arguments from a File
 
 For very long or complex `ctxctx` commands, or for commands you use frequently, you can store your queries and flags in a text file and pass that file to `ctxctx`. This helps keep your terminal commands clean and makes them easily repeatable.
 
@@ -192,7 +231,7 @@ For very long or complex `ctxctx` commands, or for commands you use frequently, 
     ctxctx src/main.py 'tests/unit/test_config.py:10,25:50,60' '*.md' docs/api/ --profile backend_dev
     ```
 
-#### 7. Pre-defined Context Profiles
+#### 8. Pre-defined Context Profiles
 
 For common tasks, you can define **profiles** in an external `prompt_profiles.yaml` file. A profile can include a set of queries and override default configuration settings.
 
@@ -237,7 +276,7 @@ For common tasks, you can define **profiles** in an external `prompt_profiles.ya
     ctxctx --profile frontend 'public/index.html'
     ```
 
-#### 8. Output Formats (Markdown & JSON)
+#### 9. Output Formats (Markdown & JSON)
 
 The tool generates two output files by default (`prompt_input_files.md` and `prompt_input_files.json`) to give you flexibility depending on what your LLM prefers or how you want to review the context.
 
@@ -246,7 +285,7 @@ The tool generates two output files by default (`prompt_input_files.md` and `pro
 
 You can configure which formats are generated in the `CONFIG` dictionary (or via a profile).
 
-#### 9. Dry Run Mode
+#### 10. Dry Run Mode
 
 Test your queries and configurations without writing any files. The full output will be printed directly to your console.
 
@@ -275,6 +314,45 @@ Key configurable options include:
 *   `ADDITIONAL_IGNORE_FILENAMES`: List of other ignore files (e.g., `.dockerignore`) to load.
 *   `SCRIPT_DEFAULT_IGNORE_FILE`: Name of the script-specific ignore file (defaults to `prompt_builder_ignore.txt`).
 *   `PROFILE_CONFIG_FILE`: Path to your external YAML profile configuration.
+
+---
+
+### 🪵 Logging Configuration
+
+`ctxctx` provides flexible logging options to help you debug issues, monitor execution, and capture detailed output, especially useful in automated environments like CI/CD.
+
+#### Console Output
+
+By default, `ctxctx` logs informational messages to your console (`stdout`).
+
+*   **Enable Debug Mode:** Use the `--debug` flag to increase the verbosity of console output, showing detailed debugging information.
+
+    ```bash
+    ctxctx --debug src/main.py
+    ```
+
+#### File-based Logging
+
+For persistent logs or detailed analysis, you can direct all logging output to a file.
+
+*   **Log to a File:** Use the `--log-file <path>` argument to write all logs (including DEBUG level) to the specified file. This is highly recommended for CI/CD pipelines or when running `ctxctx` in non-interactive scripts, as it ensures all details are captured without relying on console output.
+
+    ```bash
+    # Log all output to ctxctx.log at DEBUG level
+    ctxctx src/cli.py --log-file ctxctx.log
+
+    # Combine with other arguments
+    ctxctx 'src/**/*.py' --profile backend_dev --log-file debug_output.txt
+    ```
+
+#### Benefits for CI/CD
+
+The `--log-file` argument is invaluable for Continuous Integration/Continuous Deployment (CI/CD) pipelines:
+
+*   **Persistent Records:** Capture full execution logs for every build, even if the pipeline fails, allowing for post-mortem analysis.
+*   **Detailed Debugging:** Provide engineers with comprehensive information for troubleshooting build issues or unexpected `ctxctx` behavior within automated workflows.
+*   **Clean Console:** Avoids flooding the CI/CD console output with verbose details, keeping the primary build logs focused.
+*   **Auditing:** Maintain an auditable trail of what context was generated for specific code changes.
 
 ---
 

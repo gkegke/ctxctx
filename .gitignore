@@ -31,7 +31,7 @@ tmp/
 # Specific to this project's own output
 prompt_input_files.md
 prompt_input_files.json
-@cargs
+cargs
 compare
 functional_dependencies
 Plan.md

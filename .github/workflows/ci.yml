@@ -1,0 +1,79 @@
+name: Python CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      # Run tests on multiple Python versions for compatibility
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'poetry' # Cache Poetry dependencies for faster runs
+
+    - name: Install Poetry
+      run: pip install poetry
+
+    - name: Install dependencies
+      # Use --no-root to prevent installing the current project itself in editable mode,
+      # which is often preferred for CI environments to ensure proper build/install.
+      run: poetry install --no-root
+
+    - name: Run Tests with Coverage
+      # --cov=ctxctx: Specifies the package to measure coverage for.
+      # --cov-report=xml: Generates an XML report for coverage tools (like Codecov).
+      # --cov-report=term-missing: Shows missing lines in the console output.
+      run: poetry run pytest --cov=ctxctx --cov-report=xml --cov-report=term-missing
+
+    - name: Run Black formatter check
+      # Checks if code adheres to Black's formatting. Fails if not formatted.
+      run: poetry run black --check .
+      continue-on-error: true # Set to false once you've formatted your codebase
+
+    - name: Run isort check (import sorting)
+      # Checks if imports are sorted correctly. Fails if not.
+      run: poetry run isort --check-only .
+      continue-on-error: true # Set to false once imports are sorted
+
+    - name: Run Flake8 linter
+      # Flake8 combines Pyflakes, pycodestyle, and McCabe.
+      run: poetry run flake8 .
+      continue-on-error: true # Set to false after addressing initial warnings/errors
+
+    - name: Run MyPy type checker
+      # Performs static type analysis on your code.
+      # `ctxctx` is your package name.
+      run: poetry run mypy ctxctx
+      continue-on-error: true # Set to false after addressing initial type errors
+
+    - name: Run Safety check (dependency vulnerabilities)
+      # Exports dependencies to a requirements file and scans for known vulnerabilities.
+      run: |
+        poetry export --without-hashes --format=requirements.txt > requirements.txt
+        safety check -r requirements.txt
+      continue-on-error: true # Set to false to fail on critical vulnerabilities
+
+    - name: Run Bandit security linter
+      # Scans your code for common security issues.
+      # -r ctxctx: Recursively scan the ctxctx package.
+      # -ll: Reports issues at all levels (low, medium, high).
+      # -c pyproject.toml: You can define Bandit config in pyproject.toml (optional).
+      run: poetry run bandit -r ctxctx -ll
+      continue-on-error: true # Set to false to fail on security issues

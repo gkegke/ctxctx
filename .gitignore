@@ -12,7 +12,6 @@ venv/
 # Poetry
 .python-version
 .poetry/
-poetry.lock
 
 # IDEs
 .idea/

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ctxctx"
-version = "0.3.2"
+version = "0.3.3"
 description = "Intelligently select, format, and present relevant project files and directory structure as context for LLMs."
 authors = ["Toomes Gud <toomesgud@gmail.com>"]
 license = "MIT"

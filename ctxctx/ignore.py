@@ -36,13 +36,28 @@ class IgnoreManager:
             with open(full_filepath, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if not line or line.startswith("#") or line.startswith("!"):
+                    # A proper .gitignore parser would handle '!' for negations,
+                    # but for now we only filter comments. Force-includes are handled
+                    # by separate command-line arguments.
+                    if not line or line.startswith("#"):  # Changed: Removed line.startswith("!")
                         continue
 
+                    # .gitignore patterns:
+                    # 'foo/' matches directory foo
+                    # '/foo' matches foo only at root
+                    # 'foo' matches foo anywhere
+                    # We store paths relative to the root for consistency, and strip leading
+                    # '/' if present as fnmatch works on filenames/relative paths, and the
+                    # "match anywhere" glob (e.g. '**/foo') is handled by the search logic
+                    # or explicit checks.
                     if line.startswith("/"):
                         line = line[1:]
-                    if line.endswith("/"):
-                        line = line.rstrip("/")
+                    # Trailing '/' is often significant for directories, but fnmatch
+                    # typically operates on files. For simplicity, we'll keep it for
+                    # explicit matches, but allow globs to match regardless.
+                    # For directory patterns like "foo/", fnmatch might not directly
+                    # match "foo/bar.txt". The IgnoreManager's is_ignored logic needs
+                    # to handle this by checking both file and directory path parts.
                     patterns.add(line)
         except Exception as e:
             logger.warning(f"Could not load patterns from {full_filepath}: {e}")
@@ -58,7 +73,7 @@ class IgnoreManager:
         except ValueError:
             logger.debug(
                 f"Path '{full_path}' is not relative to root "
-                f"'{self.root_path}'. Treating as ignored."
+                f"'{self.root_path}'. Treating as not force-included."
             )
             return False
 
@@ -69,6 +84,7 @@ class IgnoreManager:
         for pattern in self._force_include_patterns:
             norm_pattern = os.path.normpath(pattern)
 
+            # Direct match
             if norm_pattern == norm_rel_path:
                 logger.debug(
                     f"FORCE INCLUDE: Exact relative path match for "
@@ -76,6 +92,7 @@ class IgnoreManager:
                 )
                 return True
 
+            # Glob match against full relative path
             if fnmatch.fnmatch(norm_rel_path, norm_pattern):
                 logger.debug(
                     f"FORCE INCLUDE: Glob relative path match for "
@@ -83,6 +100,7 @@ class IgnoreManager:
                 )
                 return True
 
+            # Glob match against base name
             if fnmatch.fnmatch(base_name, norm_pattern):
                 logger.debug(
                     f"FORCE INCLUDE: Glob base name match for '{full_path}' "
@@ -90,6 +108,7 @@ class IgnoreManager:
                 )
                 return True
 
+            # Glob match against any path component (e.g., "foo" matches "dir/foo/bar.txt")
             if any(fnmatch.fnmatch(part, norm_pattern) for part in rel_path_parts):
                 logger.debug(
                     f"FORCE INCLUDE: Path component glob match for "
@@ -156,24 +175,18 @@ class IgnoreManager:
         for p in self._explicit_ignore_set:
             norm_p = os.path.normpath(p)
 
-            if norm_p == base_name or norm_p == rel_path:
-                logger.debug(f"Ignored by exact pattern match: {full_path} " f"(pattern: {p})")
-                return True
+            # Check if norm_p matches the relative path, base name, or any part
+            # using direct match or glob patterns.
+            is_match = (
+                norm_p == rel_path
+                or norm_p == base_name
+                or fnmatch.fnmatch(rel_path, norm_p)
+                or fnmatch.fnmatch(base_name, norm_p)
+                or any(fnmatch.fnmatch(part, norm_p) for part in rel_path_parts)
+            )
 
-            if fnmatch.fnmatch(rel_path, norm_p):
-                logger.debug(
-                    f"Ignored by relative path glob match: {full_path} " f"(pattern: {p})"
-                )
-                return True
-
-            if fnmatch.fnmatch(base_name, norm_p):
-                logger.debug(f"Ignored by base name glob match: {full_path} " f"(pattern: {p})")
-                return True
-
-            if any(fnmatch.fnmatch(part, norm_p) for part in rel_path_parts):
-                logger.debug(
-                    f"Ignored by path component glob match: {full_path} " f"(pattern: {p})"
-                )
+            if is_match:
+                logger.debug(f"Ignored by explicit pattern: {full_path} (pattern: {p})")
                 return True
 
         if any(pattern.lower() in rel_path.lower() for pattern in self._substring_ignore_patterns):

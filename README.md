@@ -138,33 +138,45 @@ Crucial for large projects! The tool uses a robust ignore system to ensure you d
 
 Sometimes, you want to include a file or folder that is normally ignored by `ctxctx`'s default rules, `.gitignore`, or your custom `prompt_builder_ignore.txt`. The "force include" feature allows you to explicitly override these ignore rules for specific paths.
 
-*   **Syntax:** Prefix the file or folder path (or glob pattern) with `!` (exclamation mark).
-*   **How it works:** When `ctxctx` encounters a query starting with `!`, it marks that path as "force included". During processing, if a file matches *any* ignore rule, `ctxctx` first checks if it's explicitly force-included. If it is, the file will be included in the context, regardless of other ignore patterns.
+*   **Syntax:** Prefix the file or folder path (or glob pattern) with `force:`.
+    *   Example: `ctxctx 'force:path/to/file.js'`
+*   **How it works:** When `ctxctx` encounters a query starting with `force:`, it marks that path as "force included". During processing, if a file matches *any* ignore rule, `ctxctx` first checks if it's explicitly force-included. If it is, the file will be included in the context, regardless of other ignore patterns.
+
+*   **Important Nuance for Simple Filenames:**
+    When using `force:` followed by a *simple filename* (i.e., no directory separators like `/` or `\\`, and no glob wildcards like `*` or `?`), `ctxctx` will **only look for that file directly in the project's root directory**. This prevents unintended inclusion of identically named files deep within subdirectories, which is particularly useful for project-level files like `LICENSE` or `.gitignore`.
+
+    *   **Example: `force:.gitignore`**
+        If you have `/project/.gitignore` and `/project/frontend/.gitignore`, `ctxctx 'force:.gitignore'` will **only** include `/project/.gitignore`. If you wanted the one in `frontend/`, you would need to specify its path: `ctxctx 'force:frontend/.gitignore'`.
+
+    *   **Example: `force:README.md`**
+        If you have `README.md` at the root and `docs/README.md`, `ctxctx 'force:README.md'` will **only** include the root `README.md`.
+
+    *   This specific root-only behavior **does not apply** if your `force:` query includes directory separators (e.g., `force:src/config.py`) or glob patterns (e.g., `force:*.log`). In those cases, the search remains recursive up to `SEARCH_MAX_DEPTH`, and force-include simply overrides ignore rules wherever the pattern matches.
 
 *   **Examples:**
     *   **Force include a specific log file:**
         ```bash
-        ctxctx '!debug.log'
+        ctxctx 'force:debug.log'
         ```
-        (Even if `*.log` is in your `.gitignore` or `debug.log` is in `prompt_builder_ignore.txt`, it will be included.)
+        (Even if `*.log` is in your `.gitignore` or `debug.log` is in `prompt_builder_ignore.txt`, it will be included. If `debug.log` only exists in a subdirectory, this command will *not* find it, due to the nuance described above.)
 
     *   **Force include a file inside an ignored directory:**
         ```bash
-        ctxctx '!node_modules/my_custom_module/index.js'
+        ctxctx 'force:node_modules/my_custom_module/index.js'
         ```
-        (Normally `node_modules` is ignored, but this specific file will be included.)
+        (Normally `node_modules` is ignored, but this specific file will be included. This is a path-specific query, so it searches deeply.)
 
     *   **Force include all build artifacts (using a glob):**
         ```bash
-        ctxctx '!build/**/*.js'
+        ctxctx 'force:build/**/*.js'
         ```
-        (If your `build` directory is typically ignored, this will include all JavaScript files within it.)
+        (If your `build` directory is typically ignored, this will include all JavaScript files within it. This is a glob query, so it searches deeply.)
 
     *   **Combine force-include with line ranges:**
         ```bash
-        ctxctx '!temp/sensitive_data.py:10,20'
+        ctxctx 'force:temp/sensitive_data.py:10,20'
         ```
-        (Includes only lines 10-20 from `sensitive_data.py`, even if `temp/` is ignored.)
+        (Includes only lines 10-20 from `sensitive_data.py`, even if `temp/` is ignored. This is a path-specific query, so it searches deeply.)
 
 This feature provides granular control, ensuring that critical files are always part of your LLM context, even if they would otherwise be filtered out.
 

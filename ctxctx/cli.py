@@ -1,10 +1,11 @@
 # ctxctx/cli.py
 import argparse
+import datetime  # Added for generated_at timestamp
 import json
 import logging
 import os
 import sys
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from .config import CONFIG, apply_profile_config, load_profile_config
 from .content import get_file_content
@@ -12,7 +13,7 @@ from .exceptions import ConfigurationError, FileReadError, TooManyMatchesError
 from .ignore import IgnoreManager
 from .logging_utils import setup_main_logging
 from .output import format_file_content_json, format_file_content_markdown
-from .search import find_matches
+from .search import FORCE_INCLUDE_PREFIX, find_matches  # Import FORCE_INCLUDE_PREFIX
 from .tree import generate_tree_string
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def parse_arguments() -> argparse.Namespace:
             "  - Glob (e.g., '*.py', 'src/**/*.js')\\n"
             "  - Line ranges (e.g., 'path/to/file.js:100,150' or "
             "'path/to/file.py:10,20:50,60')\\n"
-            "  - Force include (e.g., '!node_modules/foo.js', '!*.log') "
+            "  - Force include (e.g., 'force:node_modules/foo.js', 'force:*.log') "
             "to override ignore rules."
         ),
     )
@@ -107,9 +108,11 @@ def main():
 
     force_include_patterns = []
     for q in args.queries:
-        if q.startswith("!"):
-            force_include_patterns.append(q[1:].split(":", 1)[0])
-
+        if q.startswith(FORCE_INCLUDE_PREFIX):
+            # The path for force_include_patterns should not contain line ranges,
+            # as the `is_ignored` function works on full paths to check if they *should* be ignored,
+            # not what specific part of them is relevant.
+            force_include_patterns.append(q[len(FORCE_INCLUDE_PREFIX) :].split(":", 1)[0])
     ignore_manager = IgnoreManager(CONFIG, CONFIG["ROOT"], force_include_patterns)
     is_ignored_func = ignore_manager.is_ignored
 
@@ -133,7 +136,7 @@ def main():
             f"Force Include Patterns " f"({len(ignore_manager._force_include_patterns)}):\n"
         )
         for p in sorted(ignore_manager._force_include_patterns)[:10]:
-            logger.info(f"  - !{p}")
+            logger.info(f"  - {FORCE_INCLUDE_PREFIX}{p}")
         if len(ignore_manager._force_include_patterns) > 10:
             logger.info(f"  ...and {len(ignore_manager._force_include_patterns) - 10} " "more.")
 
@@ -194,6 +197,8 @@ def main():
                 logger.info(f"✅ Using {len(matches)} non-ignored match(es) for " f"'{query}'")
                 for match in matches:
                     path = match["path"]
+                    # Line ranges from search.py are List[List[int]] for JSON
+                    # serialization convenience
                     current_line_ranges = match.get("line_ranges", [])
 
                     if path not in consolidated_matches:
@@ -203,10 +208,15 @@ def main():
                         }
                     else:
                         existing_line_ranges = consolidated_matches[path].get("line_ranges", [])
+                        # Combine and sort line ranges, ensuring no duplicates.
+                        # Convert to tuples for set to ensure hashability, then back
+                        # to list of lists.
                         combined_ranges = sorted(
-                            list(set(existing_line_ranges + current_line_ranges))
+                            list(set(tuple(r) for r in existing_line_ranges + current_line_ranges))
                         )
-                        consolidated_matches[path]["line_ranges"] = combined_ranges
+                        consolidated_matches[path]["line_ranges"] = [
+                            list(r) for r in combined_ranges
+                        ]
                     unique_matched_paths.add(path)
 
             except TooManyMatchesError as e:
@@ -218,12 +228,13 @@ def main():
 
         all_matched_files_data = list(consolidated_matches.values())
 
+    # --- Build Output Structures ---
     output_markdown_lines: List[str] = []
-    output_json_data: Dict[str, Any] = {
-        "directory_structure": tree_output,
-        "files": [],
-    }
+    json_files_data_list: List[Dict[str, Any]] = []  # Temporary list to build JSON file content
+    # NEW: Dictionary to store character counts for summary logging
+    file_char_counts: Dict[str, Optional[int]] = {}
 
+    # Build Markdown output
     output_markdown_lines.append(f"# Project Structure for {os.path.basename(CONFIG['ROOT'])}\n")
     if args.profile:
         output_markdown_lines.append(f"**Profile:** `{args.profile}`\n")
@@ -239,15 +250,25 @@ def main():
                 output_markdown_lines.append(
                     format_file_content_markdown(file_data, CONFIG["ROOT"], get_file_content)
                 )
-                output_json_data["files"].append(
+                json_files_data_list.append(  # Populate list for JSON files
                     format_file_content_json(file_data, CONFIG["ROOT"], get_file_content)
                 )
+
+                # NEW: Store character count from the JSON entry's content
+                json_file_entry = json_files_data_list[-1]  # Get the last added entry
+                if "content" in json_file_entry and json_file_entry["content"] is not None:
+                    file_char_counts[file_data["path"]] = len(json_file_entry["content"])
+                # Content might be empty or not included for some reason
+                # (e.g., specific line ranges resulting in no content)
+                else:
+                    file_char_counts[file_data["path"]] = 0
             except FileReadError as e:
                 logger.warning(f"Skipping file '{file_data['path']}' due to read " f"error: {e}")
                 output_markdown_lines.append(
                     f"**[FILE: /{os.path.relpath(file_data['path'], CONFIG['ROOT'])}]**"
                     f"\n```\n// Error reading file: {e}\n```"
                 )
+                file_char_counts[file_data["path"]] = None  # Indicate an error occurred
             except Exception:
                 logger.exception(
                     f"An unexpected error occurred formatting file " f"'{file_data['path']}'"
@@ -256,10 +277,40 @@ def main():
     else:
         output_markdown_lines.append("\n_No specific files included based on queries._\n")
 
+    # Finalize JSON output structure and add metadata
+    now_utc = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    output_json_data: Dict[str, Any] = {
+        "directory_structure": tree_output,
+        "details": {
+            "generated_at": now_utc,
+            "root_directory": CONFIG["ROOT"],
+            # "queries_used": args.queries,
+            "tree_depth_limit": CONFIG["TREE_MAX_DEPTH"],
+            "search_depth_limit": CONFIG["SEARCH_MAX_DEPTH"],
+            "files_included_count": len(unique_matched_paths),
+            # total_characters_json will be added after this dict is built and stringified
+        },
+        "files": json_files_data_list,
+    }
+
+    # Calculate total_characters_json *after* the dict is fully formed
+    # (except for this field itself).
+    # We dump it to a string first to get its character length,
+    # then add that length back.
+    temp_json_string_for_size = json.dumps(output_json_data, indent=2, ensure_ascii=False)
+    output_json_data["details"]["total_characters_json"] = len(temp_json_string_for_size)
+    # --- End Build Output Structures ---
+
     logger.info(f"\n--- Matched Files Summary ({len(unique_matched_paths)} " "unique files) ---")
     if unique_matched_paths:
         for file_path in sorted(list(unique_matched_paths)):
-            logger.info(f"  - {os.path.relpath(file_path, CONFIG['ROOT'])}")
+            relative_path = os.path.relpath(file_path, CONFIG["ROOT"])
+            char_count = file_char_counts.get(file_path)  # Retrieve character count
+            if char_count is not None:
+                logger.info(f"  - {relative_path} ({char_count} characters)")
+            else:
+                logger.info(f"  - {relative_path} (Content not available or error)")
     else:
         logger.info("  No files included based on queries.")
     logger.info("-" * 20)
@@ -268,6 +319,7 @@ def main():
         logger.info("\n--- Dry Run Output Preview (Markdown) ---")
         print("\n\n".join(output_markdown_lines))
         logger.info("\n--- Dry Run Output Preview (JSON) ---")
+        # Use the finalized output_json_data (which now includes total_characters_json)
         print(json.dumps(output_json_data, indent=2, ensure_ascii=False))
         logger.info("\n🎯 Dry run complete. No files were written.")
     else:
@@ -280,6 +332,8 @@ def main():
                         f.write("\n\n".join(output_markdown_lines))
                 elif output_format == "json":
                     with open(output_filepath, "w", encoding="utf-8") as f:
+                        # Use the finalized output_json_data
+                        # (which now includes total_characters_json)
                         json.dump(output_json_data, f, indent=2, ensure_ascii=False)
                 logger.info(
                     f"🎯 Wrote output in '{output_format}' format to " f"'{output_filepath}'."

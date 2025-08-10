@@ -26,14 +26,17 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'poetry' # Cache Poetry dependencies for faster runs
+        # The cache option helps speed up subsequent runs by caching Poetry's dependencies.
+        cache: 'poetry'
 
-    - name: Install Poetry
-      run: pip install poetry
+    # The key fix: Use a dedicated action to set up Poetry.
+    # This action ensures the Poetry executable is installed and available in the PATH.
+    - name: Setup Poetry
+      uses: abatilo/actions-poetry@v3
 
     - name: Install dependencies
       # Use --no-root to prevent installing the current project itself in editable mode,
-      # which is often preferred for CI environments to ensure proper build/install.
+      # which is often preferred for CI environments to ensure a proper build.
       run: poetry install --no-root
 
     - name: Run Tests with Coverage
@@ -45,30 +48,36 @@ jobs:
     - name: Run Black formatter check
       # Checks if code adheres to Black's formatting. Fails if not formatted.
       run: poetry run black --check .
-      continue-on-error: true # Set to false once you've formatted your codebase
+      # Setting this to 'true' is useful for a new project, but you should
+      # change it to 'false' once you've formatted your codebase.
+      continue-on-error: true
 
     - name: Run isort check (import sorting)
       # Checks if imports are sorted correctly. Fails if not.
       run: poetry run isort --check-only .
-      continue-on-error: true # Set to false once imports are sorted
+      # Set to 'false' after addressing initial import sorting issues.
+      continue-on-error: true
 
     - name: Run Flake8 linter
       # Flake8 combines Pyflakes, pycodestyle, and McCabe.
       run: poetry run flake8 .
-      continue-on-error: true # Set to false after addressing initial warnings/errors
+      # Set to 'false' after addressing initial warnings/errors.
+      continue-on-error: true
 
     - name: Run MyPy type checker
       # Performs static type analysis on your code.
       # `ctxctx` is your package name.
       run: poetry run mypy ctxctx
-      continue-on-error: true # Set to false after addressing initial type errors
+      # Set to 'false' after addressing initial type errors.
+      continue-on-error: true
 
     - name: Run Safety check (dependency vulnerabilities)
       # Exports dependencies to a requirements file and scans for known vulnerabilities.
       run: |
         poetry export --without-hashes --format=requirements.txt > requirements.txt
         safety check -r requirements.txt
-      continue-on-error: true # Set to false to fail on critical vulnerabilities
+      # Set to 'false' to fail on critical vulnerabilities.
+      continue-on-error: true
 
     - name: Run Bandit security linter
       # Scans your code for common security issues.
@@ -76,4 +85,5 @@ jobs:
       # -ll: Reports issues at all levels (low, medium, high).
       # -c pyproject.toml: You can define Bandit config in pyproject.toml (optional).
       run: poetry run bandit -r ctxctx -ll
-      continue-on-error: true # Set to false to fail on security issues
+      # Set to 'false' to fail on security issues.
+      continue-on-error: true

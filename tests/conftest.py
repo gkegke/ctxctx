@@ -14,22 +14,6 @@ def fs(fs):
 @pytest.fixture
 def default_config_fixture():
     # Import CONFIG here to ensure we get the initial state
-    from ctxctx.config import DEFAULT_CONFIG
+    from ctxctx.config import get_default_config
 
-    return DEFAULT_CONFIG.copy()
-
-
-# Optional: A fixture for the mutable CONFIG, allowing tests to modify it
-# while ensuring it's reset for each test run.
-@pytest.fixture(autouse=True)
-def reset_config():
-    from ctxctx.config import CONFIG, DEFAULT_CONFIG
-
-    original_config = DEFAULT_CONFIG.copy()  # Store a true copy of default
-    # Clear current CONFIG and update with default values
-    CONFIG.clear()
-    CONFIG.update(original_config)
-    yield
-    # No cleanup needed after yield because of
-    # `autouse=True` and `CONFIG.clear()` / `update()` pattern.
-    # The next test will get a fresh copy from DEFAULT_CONFIG.
+    return get_default_config()

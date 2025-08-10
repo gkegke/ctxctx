@@ -1,40 +1,43 @@
 # tests/unit/test_config.py
-import os
+from pathlib import Path  # Added Path import
 
 import pytest
 
-from ctxctx.config import CONFIG, apply_profile_config, get_default_config, load_profile_config
+from ctxctx.config import apply_profile_config, get_default_config, load_profile_config
 from ctxctx.exceptions import ConfigurationError
 
 
 @pytest.fixture(autouse=True)
 def setup_config(fs):
-    """Ensures CONFIG is reset and ROOT is set for each test, creates profile file."""
-    # Reset CONFIG to its default state before each test
-    CONFIG.clear()  # Clear existing, then update with a fresh default
-    CONFIG.update(get_default_config())
-
-    # Create a dummy root directory
-    root_path = "/test_project"
+    """Ensures a fresh default config and root path are available for each test."""
+    test_config = get_default_config()  # Get a fresh, mutable default config
+    root_path = Path("/test_project")  # Changed to Path object
     fs.create_dir(root_path)
-    CONFIG["ROOT"] = root_path
-    CONFIG["PROFILE_CONFIG_FILE"] = "test_profiles.yaml"  # Use a specific name for tests
-    return root_path
+    # The Config object's `root` attribute is automatically resolved from the internal _data
+    test_config["ROOT"] = str(root_path)  # Pass as string, Config will convert to Path.resolve()
+    # Changed: Set PROFILE_CONFIG_FILE on the *test_config* dictionary for the instance
+    test_config["PROFILE_CONFIG_FILE"] = "test_profiles.yaml"
+    return root_path, test_config
 
 
-def create_profile_file(fs, root_path, content):
+# Changed: create_profile_file now takes the specific config dictionary
+def create_profile_file(
+    fs, root_path: Path, config_dict, content
+):  # Added type hint for root_path
     """Helper to create the profile YAML file."""
-    profile_path = os.path.join(root_path, CONFIG["PROFILE_CONFIG_FILE"])
+    # Use Path / operator for cleaner path joining
+    profile_path = root_path / config_dict["PROFILE_CONFIG_FILE"]
     fs.create_file(profile_path, contents=content)
     return profile_path
 
 
+# Changed: fixture now provides test_config
 def test_load_profile_config_success(fs, setup_config):
     """
     Tests successful loading of a profile configuration.
     ROI: High (Core profile feature). TTI: Low.
     """
-    root_path = setup_config
+    root_path, test_config = setup_config
     profile_content = """
 profiles:
   dev:
@@ -49,79 +52,94 @@ profiles:
     TREE_MAX_DEPTH: 2
     USE_GITIGNORE: False
 """
-    create_profile_file(fs, root_path, profile_content)
+    # Changed: Pass test_config to create_profile_file
+    create_profile_file(fs, root_path, test_config._data, profile_content)  # Pass _data dict
 
-    dev_profile = load_profile_config("dev", root_path)
+    # Changed: Pass profile_config_filename from test_config's internal data
+    dev_profile = load_profile_config("dev", root_path, test_config.profile_config_file)
     assert dev_profile["TREE_MAX_DEPTH"] == 5
     assert "md" in dev_profile["OUTPUT_FORMATS"]
     assert "temp_dev" in dev_profile["EXPLICIT_IGNORE_NAMES"]
     assert "src/" in dev_profile["queries"]
     assert "tests/" in dev_profile["queries"]
 
-    prod_profile = load_profile_config("prod", root_path)
+    # Changed: Pass profile_config_filename from test_config's internal data
+    prod_profile = load_profile_config("prod", root_path, test_config.profile_config_file)
     assert prod_profile["TREE_MAX_DEPTH"] == 2
     assert prod_profile["USE_GITIGNORE"] is False
 
 
+# Changed: fixture now provides test_config
 def test_load_profile_config_file_not_found(fs, setup_config):
     """
     Tests error handling when the profile file does not exist.
     ROI: High (Robustness). TTI: Low.
     """
-    root_path = setup_config
+    root_path, test_config = setup_config
     # Do not create the file
     with pytest.raises(
         ConfigurationError, match=r"Profile configuration file not found: '.*test_profiles.yaml'.*"
     ):
-        load_profile_config("any_profile", root_path)
+        # Changed: Pass profile_config_filename from test_config's internal data
+        load_profile_config("any_profile", root_path, test_config.profile_config_file)
 
 
+# Changed: fixture now provides test_config
 def test_load_profile_config_malformed_yaml(fs, setup_config):
     """
     Tests error handling for malformed YAML in the profile file.
     ROI: High (Robustness). TTI: Low.
     """
-    root_path = setup_config
+    root_path, test_config = setup_config
     malformed_content = """
 profiles:
   dev:
     TREE_MAX_DEPTH: 5
   - this is not yaml
 """
-    create_profile_file(fs, root_path, malformed_content)
+    # Changed: Pass test_config to create_profile_file
+    create_profile_file(fs, root_path, test_config._data, malformed_content)  # Pass _data dict
 
     with pytest.raises(
         ConfigurationError, match=r"Error loading YAML config from '.*test_profiles.yaml'.*"
     ):
-        load_profile_config("dev", root_path)
+        # Changed: Pass profile_config_filename from test_config's internal data
+        load_profile_config("dev", root_path, test_config.profile_config_file)
 
 
+# Changed: fixture now provides test_config
 def test_load_profile_config_profile_not_found(fs, setup_config):
     """
     Tests error handling when the requested profile name is not in the file.
     ROI: High (User feedback). TTI: Low.
     """
-    root_path = setup_config
+    root_path, test_config = setup_config
     profile_content = """
 profiles:
   only_profile:
     TREE_MAX_DEPTH: 5
 """
-    create_profile_file(fs, root_path, profile_content)
+    # Changed: Pass test_config to create_profile_file
+    create_profile_file(fs, root_path, test_config._data, profile_content)  # Pass _data dict
 
     with pytest.raises(
         ConfigurationError, match=r"Profile 'non_existent' not found in '.*test_profiles.yaml'.*"
     ):
-        load_profile_config("non_existent", root_path)
+        # Changed: Pass profile_config_filename from test_config's internal data
+        load_profile_config("non_existent", root_path, test_config.profile_config_file)
 
 
+# Changed: fixture now provides test_config
 def test_apply_profile_config_merging(setup_config):
     """
     Tests that apply_profile_config correctly merges different types of data.
     ROI: High (Core config modification). TTI: Medium.
     """
-    # Start with default CONFIG (reset by fixture)
-    initial_config = get_default_config()  # Get a fresh default for comparison
+    root_path, base_config = setup_config  # Use base_config from fixture
+
+    # Start with a mutable copy of the default CONFIG for this test
+    # Changed: Create a new Config object for manipulation, not a dict copy
+    test_config_for_merge = get_default_config()
 
     profile_data = {
         "TREE_MAX_DEPTH": 10,
@@ -131,31 +149,35 @@ def test_apply_profile_config_merging(setup_config):
             "another_item",
         },  # New items, should update set
         "SUBSTRING_IGNORE_PATTERNS": ["new_substring"],  # New patterns, should extend list
-        # 'FUNCTION_PATTERNS': {'.js': "new_js_regex"}, # This key is not in default config
         "NEW_SETTING": "value",  # New setting, should be added
     }
 
-    apply_profile_config(CONFIG, profile_data)
+    # Changed: Apply profile to the test-specific config object
+    apply_profile_config(test_config_for_merge, profile_data)
 
-    assert CONFIG["TREE_MAX_DEPTH"] == 10
+    # Assert against attributes of the Config object
+    assert test_config_for_merge.tree_max_depth == 10
 
     # OUTPUT_FORMATS should contain 'md', 'json', 'txt' and be unique
-    assert "md" in CONFIG["OUTPUT_FORMATS"]
-    assert "json" in CONFIG["OUTPUT_FORMATS"]
-    assert "txt" in CONFIG["OUTPUT_FORMATS"]
-    assert len(set(CONFIG["OUTPUT_FORMATS"])) == 3  # Check for uniqueness
+    assert "md" in test_config_for_merge.output_formats
+    assert "json" in test_config_for_merge.output_formats
+    assert "txt" in test_config_for_merge.output_formats
+    # Check for uniqueness and correct count
+    assert len(set(test_config_for_merge.output_formats)) == 3
 
     # EXPLICIT_IGNORE_NAMES should have old and new items
-    assert ".git" in CONFIG["EXPLICIT_IGNORE_NAMES"]  # From default
-    assert "new_ignore_item" in CONFIG["EXPLICIT_IGNORE_NAMES"]
-    assert "another_item" in CONFIG["EXPLICIT_IGNORE_NAMES"]
+    assert ".git" in test_config_for_merge.explicit_ignore_names  # From default
+    assert "new_ignore_item" in test_config_for_merge.explicit_ignore_names
+    assert "another_item" in test_config_for_merge.explicit_ignore_names
+    # The default config has 14 explicit ignore names. We added 2 more.
+    assert len(test_config_for_merge.explicit_ignore_names) == 14 + 2
 
     # SUBSTRING_IGNORE_PATTERNS should have old and new items
-    assert "package-lock.json" in CONFIG["SUBSTRING_IGNORE_PATTERNS"]  # From default
-    assert "new_substring" in CONFIG["SUBSTRING_IGNORE_PATTERNS"]
-    assert (
-        len(set(CONFIG["SUBSTRING_IGNORE_PATTERNS"]))
-        == len(initial_config["SUBSTRING_IGNORE_PATTERNS"]) + 1
-    )  # Check uniqueness
+    assert "package-lock.json" in test_config_for_merge.substring_ignore_patterns  # From default
+    assert "new_substring" in test_config_for_merge.substring_ignore_patterns
+    # The default config has 7 substring patterns. We added 1 more.
+    assert len(set(test_config_for_merge.substring_ignore_patterns)) == 7 + 1
 
-    assert CONFIG["NEW_SETTING"] == "value"
+    # New settings added to _data should be accessible via _data or potentially new attributes
+    # For a truly 'new_setting', it wouldn't have an attribute, so direct _data access is fine.
+    assert test_config_for_merge["NEW_SETTING"] == "value"

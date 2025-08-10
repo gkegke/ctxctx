@@ -1,6 +1,6 @@
 # ctxctx/output.py
 import logging
-import os
+from pathlib import Path  # Added import
 from typing import Any, Callable, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -8,22 +8,24 @@ logger = logging.getLogger(__name__)
 
 def format_file_content_markdown(
     file_data: Dict[str, Any],
-    root_path: str,
-    get_file_content_func: Callable[[str, List[Tuple[int, int]]], str],
+    root_path: Path,  # Changed type hint
+    get_file_content_func: Callable[
+        [Path, List[Tuple[int, int]]], str
+    ],  # Changed Callable signature
 ) -> str:
     """Formats file content for Markdown output.
-    :param file_data: Dictionary containing 'path', and optionally 'line_ranges'
+    :param file_data: Dictionary containing 'path' (Path object), and optionally 'line_ranges'
                       (list of tuples).
-    :param root_path: The root directory of the project.
+    :param root_path: The root directory of the project (Path object).
     :param get_file_content_func: The function to call to retrieve file content.
     :return: Markdown formatted string.
     """
-    path = file_data["path"]
-    rel_path = os.path.relpath(path, root_path)
+    path: Path = file_data["path"]  # Expects Path object
+    rel_path = path.relative_to(root_path)  # Changed to Path.relative_to()
 
     content_raw = get_file_content_func(path, file_data.get("line_ranges"))
 
-    ext = os.path.splitext(path)[1].lstrip(".")
+    ext = path.suffix.lstrip(".")  # Changed to Path.suffix
     lang = ""
     if ext:
         lang_map = {
@@ -67,21 +69,24 @@ def format_file_content_markdown(
 
 def format_file_content_json(
     file_data: Dict[str, Any],
-    root_path: str,
-    get_file_content_func: Callable[[str, List[Tuple[int, int]]], str],
+    root_path: Path,  # Changed type hint
+    get_file_content_func: Callable[
+        [Path, List[Tuple[int, int]]], str
+    ],  # Changed Callable signature
 ) -> Dict[str, Any]:
     """Formats file content for JSON output.
-    :param file_data: Dictionary containing 'path', and optionally 'line_ranges'
+    :param file_data: Dictionary containing 'path' (Path object), and optionally 'line_ranges'
                       (list of tuples).
-    :param root_path: The root directory of the project.
+    :param root_path: The root directory of the project (Path object).
     :param get_file_content_func: The function to call to retrieve file content.
     :return: Dictionary for JSON output.
     """
-    path = file_data["path"]
-    rel_path = os.path.relpath(path, root_path)
+    path: Path = file_data["path"]  # Expects Path object
+    rel_path = path.relative_to(root_path)  # Changed to Path.relative_to()
 
     content_raw = get_file_content_func(path, file_data.get("line_ranges"))
 
+    # For JSON output, paths should generally be strings
     data = {"path": f"/{rel_path}", "content": content_raw}
 
     line_ranges = file_data.get("line_ranges")

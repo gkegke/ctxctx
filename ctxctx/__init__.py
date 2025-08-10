@@ -1,6 +1,6 @@
 import logging
 
-from .config import CONFIG
+# Removed: from .config import CONFIG # No longer directly importing CONFIG here
 
 # Configure a basic logger for the package
 # This can be further configured in cli.py for user-facing output
@@ -11,4 +11,5 @@ logger.addHandler(
 )  # Prevent "No handlers could be found for logger" warnings
 logger.setLevel(logging.INFO)  # Default level
 
-__version__ = CONFIG.get("VERSION", "0.3.1")
+# Changed: __version__ is now a static string, independent of config.py's CONFIG
+__version__ = "0.3.1"

@@ -1,3 +1,4 @@
+# ctxctx/exceptions.py
 class CtxError(Exception):
     """Base exception for ctx package."""
 
@@ -38,3 +39,35 @@ class TooManyMatchesError(CtxError):
             f"increase MAX_MATCHES_PER_QUERY. Examples: "
             f"{', '.join(examples[:3])}{'...' if len(examples) > 3 else ''}"
         )
+
+
+class QueryProcessingError(CtxError):
+    """Raised when an unexpected error occurs during file query processing."""
+
+    def __init__(
+        self,
+        message: str = "An unexpected error occurred during query processing.",
+        query: str = None,
+    ):
+        super().__init__(message)
+        self.query = query
+
+
+class OutputFormattingError(CtxError):
+    """Raised when an unexpected error occurs during output content formatting."""
+
+    def __init__(
+        self,
+        message: str = "An unexpected error occurred during output formatting.",
+        file_path: str = None,
+    ):
+        super().__init__(message)
+        self.file_path = file_path
+
+
+class OutputWriteError(CtxError):
+    """Raised when there's an error writing the final output files."""
+
+    def __init__(self, message: str = "Error writing output file.", file_path: str = None):
+        super().__init__(message)
+        self.file_path = file_path

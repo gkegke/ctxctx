@@ -1,5 +1,6 @@
 # ctxctx/content.py
 import logging
+from pathlib import Path  # Added import
 from typing import List, Optional, Tuple
 
 from .exceptions import FileReadError
@@ -7,10 +8,12 @@ from .exceptions import FileReadError
 logger = logging.getLogger(__name__)
 
 
-def get_file_content(path: str, line_ranges: Optional[List[Tuple[int, int]]] = None) -> str:
+def get_file_content(
+    path: Path, line_ranges: Optional[List[Tuple[int, int]]] = None
+) -> str:  # Changed path type hint
     """Reads file content, optionally by line ranges."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:  # open() accepts Path objects
             lines = f.readlines()
     except Exception as e:
         raise FileReadError(f"Error reading file '{path}': {e}")

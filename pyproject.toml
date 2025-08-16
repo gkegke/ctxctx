@@ -1,6 +1,6 @@
 [project]
 name = "ctxctx"
-version = "0.3.5"
+version = "0.3.6"
 description = "Intelligently select, format, and present relevant project files and directory structure as context for LLMs."
 license = { text = "MIT" }
 readme = "README.md"

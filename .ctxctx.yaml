@@ -2,65 +2,41 @@
 # This file allows you to customize the behavior of ctxctx for your project.
 # For more details, see the project's documentation.
 
-# The root directory of the project. Defaults to the current directory.
-ROOT: '.'
-
-# Base name for the output files (e.g., 'prompt_input_files.md').
+ROOT: .
 OUTPUT_FILE_BASE_NAME: prompt_input_files
-
-# A list of output formats to generate. Options are 'md' and 'json'.
 OUTPUT_FORMATS:
-  - json
-  - md
-
-# Maximum depth for the directory tree generation.
+- md
+- json
 TREE_MAX_DEPTH: 3
-
-# If true, empty directories will not be shown in the tree.
 TREE_EXCLUDE_EMPTY_DIRS: false
-
-# Maximum depth for file searches (glob patterns).
 SEARCH_MAX_DEPTH: 5
-
-# Maximum number of file matches allowed per query before an error is raised.
-# # This prevents accidentally including too many files.
 MAX_MATCHES_PER_QUERY: 5
-
-# A list of directory or file names to always ignore. These are exact matches.
 EXPLICIT_IGNORE_NAMES:
-  - .DS_Store
-  - .git
-  - .gitignore
-  - .idea
-  - .venv
-  - .vscode
-  - __pycache__
-  - build
-  - coverage
-  - dist
-  - logs
-  - node_modules
-  - temp
-  - tmp
-
-# A list of patterns to ignore if they appear anywhere in a path.
+- .DS_Store
+- .git
+- .gitignore
+- .idea
+- .venv
+- .vscode
+- __pycache__
+- build
+- coverage
+- dist
+- logs
+- node_modules
+- temp
+- tmp
 SUBSTRING_IGNORE_PATTERNS:
-  - .env
-  - .next
-  - __snapshots__
-  - npm-debug.log
-  - package-lock.json
-  - playwright-report
-  - yarn.lock
-
-# A list of other ignore files to respect (e.g., .dockerignore).
+- package-lock.json
+- playwright-report
+- yarn.lock
+- npm-debug.log
+- .env
+- __snapshots__
+- .next
 ADDITIONAL_IGNORE_FILENAMES:
-  - .dockerignore
-  - .eslintignore
-  - .npmignore
-
-# Whether to use the .gitignore file for ignoring files.
+- .dockerignore
+- .npmignore
+- .eslintignore
 USE_GITIGNORE: true
-
-# The path to the .gitignore file, relative to the root.
 GITIGNORE_PATH: .gitignore

@@ -32,10 +32,6 @@ This results in **more focused, relevant, and accurate responses** from your LLM
     ```bash
     pip install ctxctx
     ```
-    If you plan to use [Context Profiles](#8-pre-defined-context-profiles), install with the `yaml` extra:
-    ```bash
-    pip install "ctxctx[yaml]"
-    ```
     Alternatively, if cloning the repository for development:
     ```bash
     git clone https://github.com/gkegke/ctxctx.git

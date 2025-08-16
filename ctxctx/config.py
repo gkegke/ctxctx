@@ -3,6 +3,8 @@ import copy
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Set, Tuple, cast
 
+import yaml  # type: ignore
+
 from .exceptions import ConfigurationError
 
 # === CONFIGURATION ===
@@ -53,31 +55,6 @@ _DEFAULT_CONFIG_TEMPLATE: Dict[str, Any] = {
     "VERSION": "0.1.0",
     "USE_GITIGNORE": True,
     "GITIGNORE_PATH": ".gitignore",
-}
-
-# NEW: Dictionary of comments for the generated config file
-_CONFIG_COMMENTS = {
-    "ROOT": "The root directory of the project. Defaults to the current directory.",
-    "OUTPUT_FILE_BASE_NAME": "Base name for the output files (e.g., 'prompt_input_files.md').",
-    "OUTPUT_FORMATS": "A list of output formats to generate. Options are 'md' and 'json'.",
-    "TREE_MAX_DEPTH": "Maximum depth for the directory tree generation.",
-    "TREE_EXCLUDE_EMPTY_DIRS": "If true, empty directories will not be shown in the tree.",
-    "SEARCH_MAX_DEPTH": "Maximum depth for file searches (glob patterns).",
-    "MAX_MATCHES_PER_QUERY": (
-        "Maximum number of file matches allowed per query before an error is raised.\n"
-        "# This prevents accidentally including too many files."
-    ),
-    "EXPLICIT_IGNORE_NAMES": (
-        "A list of directory or file names to always ignore. These are exact matches."
-    ),
-    "SUBSTRING_IGNORE_PATTERNS": (
-        "A list of patterns to ignore if they appear anywhere in a path."
-    ),
-    "ADDITIONAL_IGNORE_FILENAMES": (
-        "A list of other ignore files to respect (e.g., .dockerignore)."
-    ),
-    "USE_GITIGNORE": "Whether to use the .gitignore file for ignoring files.",
-    "GITIGNORE_PATH": "The path to the .gitignore file, relative to the root.",
 }
 
 # NEW: Keys from the default config that should not be written to the user-facing file.
@@ -220,59 +197,42 @@ def _merge_dicts(d1: Dict[str, Any], d2: Dict[str, Any]) -> None:
 
 def generate_default_config_file(config_filepath: Path) -> None:
     """
-    Generates a default .ctxctx.yaml file with comments explaining each setting.
-    This function does NOT require PyYAML to be installed.
+    Generates a default .ctxctx.yaml file using PyYAML.
     """
-    header = [
-        "# ctxctx Configuration File",
-        "# This file allows you to customize the behavior of ctxctx for your project.",
-        "# For more details, see the project's documentation.",
-        "",
-    ]
+    header = (
+        "# ctxctx Configuration File\n"
+        "# This file allows you to customize the behavior of ctxctx for your project.\n"
+        "# For more details, see the project's documentation.\n\n"
+    )
 
-    # Helper to format values for our simple YAML output
-    def format_value(key: str, value: Any) -> str:
-        if isinstance(value, (list, set)):
-            if not value:
-                return f"{key}: []"
-            # Sort for consistent output, important for testing and readability
-            items = sorted(list(value))
-            yaml_list = [f"  - {item}" for item in items]
-            return f"{key}:\n" + "\n".join(yaml_list)
-        if isinstance(value, bool):
-            return f"{key}: {str(value).lower()}"
-        if key == "ROOT":
-            return f"{key}: '.'"  # Use the default string, not the resolved path
-        # For strings, numbers, etc., the default string representation is fine.
-        return f"{key}: {value}"
-
-    yaml_parts = []
-    defaults = create_default_config_dict()
-
-    # Iterate through the original template to maintain a consistent order
-    for key in _DEFAULT_CONFIG_TEMPLATE:
+    # Prepare a dictionary of user-facing default settings, preserving order
+    config_to_write: Dict[str, Any] = {}
+    defaults = create_default_config_dict()  # Get a mutable version
+    for key in _DEFAULT_CONFIG_TEMPLATE:  # Iterate in defined order
         if key in _INTERNAL_CONFIG_KEYS:
             continue
 
-        comment = _CONFIG_COMMENTS.get(key)
-        if comment:
-            # Handle multi-line comments
-            comment_lines = [f"# {line.strip()}" for line in comment.split("\n")]
-            yaml_parts.append("\n".join(comment_lines))
-
-        value_to_format = defaults.get(key)
-        yaml_parts.append(format_value(key, value_to_format))
-        yaml_parts.append("")  # Add a blank line for readability
-
-    content = "\n".join(header + yaml_parts)
+        value = defaults[key]
+        # Convert sets to sorted lists for stable and readable YAML output
+        if isinstance(value, set):
+            config_to_write[key] = sorted(list(value))
+        else:
+            config_to_write[key] = value
 
     try:
         with open(config_filepath, "w", encoding="utf-8") as f:
-            f.write(content)
+            f.write(header)
+            # Use yaml.dump for robust and correct YAML generation.
+            # sort_keys=False maintains the insertion order from the defaults dict.
+            yaml.dump(config_to_write, f, sort_keys=False, indent=2, default_flow_style=False)
     except IOError as e:
-        # Wrap the specific IO error in our custom exception type
         raise ConfigurationError(
             f"Failed to write default config file to '{config_filepath}': {e}"
+        ) from e
+    except Exception as e:
+        # Catch potential yaml errors, though they are unlikely here
+        raise ConfigurationError(
+            f"An unexpected error occurred while generating the default config file: {e}"
         ) from e
 
 
@@ -286,25 +246,20 @@ def load_base_config_file(config_filepath: Path) -> Dict[str, Any]:
         return {}  # Not found, return empty dict as it's an optional file
 
     try:
-        import yaml  # type: ignore
-
         with open(config_filepath, "r", encoding="utf-8") as f:
             config_data = yaml.safe_load(f)
+            if config_data is None:  # An empty file parses to None
+                return {}
             if not isinstance(config_data, dict):
                 raise ConfigurationError(
                     f"Invalid base configuration file '{config_filepath}'. "
                     "Expected a dictionary at root."
                 )
             return config_data
-    except ImportError:
-        raise ConfigurationError(
-            "PyYAML is not installed. Cannot use external configuration files. "
-            "Install with: pip install 'ctxctx[yaml]' (or pip install PyYAML)"
-        )
     except yaml.YAMLError as e:
-        raise ConfigurationError(f"Error loading YAML config from '{config_filepath}': {e}")
+        raise ConfigurationError(f"Error loading YAML config from '{config_filepath}': {e}") from e
     except Exception as e:
-        raise ConfigurationError(f"Error reading config file '{config_filepath}': {e}")
+        raise ConfigurationError(f"Error reading config file '{config_filepath}': {e}") from e
 
 
 def load_profile_config(
@@ -321,21 +276,17 @@ def load_profile_config(
         raise ConfigurationError(f"Profile configuration file not found: '{profile_config_path}'.")
 
     try:
-        import yaml  # type: ignore
-
         # open() accepts Path objects directly
         with open(profile_config_path, "r", encoding="utf-8") as f:
             all_profiles_data = yaml.safe_load(f)
-    except ImportError:
-        # Re-raise with a more user-friendly message if YAML is not installed
-        raise ConfigurationError(
-            "PyYAML is not installed. Cannot use external profiles. "
-            "Install with: pip install 'ctxctx[yaml]' (or pip install PyYAML)"
-        )
     except yaml.YAMLError as e:
-        raise ConfigurationError(f"Error loading YAML config from '{profile_config_path}': {e}")
+        raise ConfigurationError(
+            f"Error loading YAML config from '{profile_config_path}': {e}"
+        ) from e
     except Exception as e:
-        raise ConfigurationError(f"Error reading YAML config file '{profile_config_path}': {e}")
+        raise ConfigurationError(
+            f"Error reading YAML config file '{profile_config_path}': {e}"
+        ) from e
 
     if (
         not all_profiles_data

@@ -1,0 +1,61 @@
+# .ctxctx.yaml
+# Base configuration for ctxctx
+
+# Path to the root of your project. Default is '.' (current directory).
+# ROOT: "./my_project_root"
+
+# Base name for output files (e.g., "my_context.md", "my_context.json")
+# OUTPUT_FILE_BASE_NAME: "context"
+
+# List of output formats. Currently 'md' and 'json' are supported.
+# OUTPUT_FORMATS:
+#   - md
+#   - json
+
+# Maximum depth for generating the directory tree.
+# Higher values show more nested directories/files.
+TREE_MAX_DEPTH: 5
+
+# Whether to exclude empty directories from the tree output.
+# TREE_EXCLUDE_EMPTY_DIRS: true
+
+# Maximum depth for searching files based on queries.
+# Higher values allow searching deeper into nested directories.
+SEARCH_MAX_DEPTH: 6
+
+# Maximum number of non-ignored matches allowed per query.
+# Prevents accidentally including too many files from a broad query.
+MAX_MATCHES_PER_QUERY: 10
+
+# Explicit names of files/directories to ignore. These are simple patterns
+# applied to base names, relative paths, or path components.
+EXPLICIT_IGNORE_NAMES:
+  - ".git"
+  - ".env.local"
+  - "dist-server"
+  - "temp_files"
+  - "**/__tests__" # Example of a glob pattern to ignore test directories anywhere
+
+# Substring patterns to ignore. If any part of a file's relative path
+# contains one of these substrings (case-insensitive), it will be ignored.
+SUBSTRING_IGNORE_PATTERNS:
+  - "coverage-report"
+  - "backup"
+
+# Additional filenames to look for gitignore-style rules.
+# E.g., if you have a .dockerignore, rules from it will also be applied.
+ADDITIONAL_IGNORE_FILENAMES:
+  - ".npmignore"
+  - ".dockerignore"
+
+# Name of the custom ignore file specific to ctxctx rules.
+# SCRIPT_DEFAULT_IGNORE_FILE: "ctxignore.txt"
+
+# Name of the file containing context profiles.
+# PROFILE_CONFIG_FILE: "my_profiles.yaml"
+
+# Whether to use .gitignore rules found in the project.
+USE_GITIGNORE: true
+
+# Path to the main .gitignore file relative to ROOT.
+# GITIGNORE_PATH: ".gitignore"

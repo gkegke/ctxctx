@@ -1,7 +1,7 @@
 # ctxctx/config.py
 import copy
-from pathlib import Path  # Added import
-from typing import Any, Dict, FrozenSet, List, Set, Tuple, cast  # Added Union
+from pathlib import Path
+from typing import Any, Dict, FrozenSet, List, Set, Tuple, cast
 
 from .exceptions import ConfigurationError
 
@@ -49,9 +49,43 @@ _DEFAULT_CONFIG_TEMPLATE: Dict[str, Any] = {
     ),
     "SCRIPT_DEFAULT_IGNORE_FILE": "prompt_builder_ignore.txt",
     "PROFILE_CONFIG_FILE": "prompt_profiles.yaml",
+    "DEFAULT_CONFIG_FILENAME": ".ctxctx.yaml",  # NEW
     "VERSION": "0.1.0",
     "USE_GITIGNORE": True,
     "GITIGNORE_PATH": ".gitignore",
+}
+
+# NEW: Dictionary of comments for the generated config file
+_CONFIG_COMMENTS = {
+    "ROOT": "The root directory of the project. Defaults to the current directory.",
+    "OUTPUT_FILE_BASE_NAME": "Base name for the output files (e.g., 'prompt_input_files.md').",
+    "OUTPUT_FORMATS": "A list of output formats to generate. Options are 'md' and 'json'.",
+    "TREE_MAX_DEPTH": "Maximum depth for the directory tree generation.",
+    "TREE_EXCLUDE_EMPTY_DIRS": "If true, empty directories will not be shown in the tree.",
+    "SEARCH_MAX_DEPTH": "Maximum depth for file searches (glob patterns).",
+    "MAX_MATCHES_PER_QUERY": (
+        "Maximum number of file matches allowed per query before an error is raised.\n"
+        "# This prevents accidentally including too many files."
+    ),
+    "EXPLICIT_IGNORE_NAMES": (
+        "A list of directory or file names to always ignore. These are exact matches."
+    ),
+    "SUBSTRING_IGNORE_PATTERNS": (
+        "A list of patterns to ignore if they appear anywhere in a path."
+    ),
+    "ADDITIONAL_IGNORE_FILENAMES": (
+        "A list of other ignore files to respect (e.g., .dockerignore)."
+    ),
+    "USE_GITIGNORE": "Whether to use the .gitignore file for ignoring files.",
+    "GITIGNORE_PATH": "The path to the .gitignore file, relative to the root.",
+}
+
+# NEW: Keys from the default config that should not be written to the user-facing file.
+_INTERNAL_CONFIG_KEYS = {
+    "VERSION",
+    "SCRIPT_DEFAULT_IGNORE_FILE",
+    "PROFILE_CONFIG_FILE",
+    "DEFAULT_CONFIG_FILENAME",
 }
 
 
@@ -79,6 +113,7 @@ class Config:
         self.additional_ignore_filenames: List[str] = []
         self.script_default_ignore_file: str = ""
         self.profile_config_file: str = ""
+        self.default_config_filename: str = ""  # NEW
         self.version: str = ""
         self.use_gitignore: bool = False
         self.gitignore_path: str = ""
@@ -88,7 +123,7 @@ class Config:
     def _sync_attributes(self):
         """Syncs public attributes with the current state of the internal _data dictionary."""
         # Ensure ROOT is always an absolute Path for consistency
-        self.root = Path(self._data.get("ROOT", ".")).resolve()  # Changed to Path.resolve()
+        self.root = Path(self._data.get("ROOT", ".")).resolve()
         self.output_file_base_name = self._data.get("OUTPUT_FILE_BASE_NAME", "prompt_input_files")
         self.output_formats = list(self._data.get("OUTPUT_FORMATS", []))
         self.tree_max_depth = self._data.get("TREE_MAX_DEPTH", 3)
@@ -102,6 +137,9 @@ class Config:
             "SCRIPT_DEFAULT_IGNORE_FILE", "prompt_builder_ignore.txt"
         )
         self.profile_config_file = self._data.get("PROFILE_CONFIG_FILE", "prompt_profiles.yaml")
+        self.default_config_filename = self._data.get(
+            "DEFAULT_CONFIG_FILENAME", ".ctxctx.yaml"
+        )  # NEW
         self.version = self._data.get("VERSION", "0.1.0")
         self.use_gitignore = self._data.get("USE_GITIGNORE", True)
         self.gitignore_path = self._data.get("GITIGNORE_PATH", ".gitignore")
@@ -114,6 +152,14 @@ class Config:
     def __setitem__(self, key, value):
         self._data[key] = value
         self._sync_attributes()  # Re-sync attributes when internal data is directly modified
+
+    def merge(self, data: Dict[str, Any]) -> None:
+        """
+        Merges new data into the current configuration's internal state.
+        After merging, public attributes are re-synchronized.
+        """
+        _merge_dicts(self._data, data)
+        self._sync_attributes()
 
     def __str__(self):
         return str(self._data)
@@ -172,17 +218,108 @@ def _merge_dicts(d1: Dict[str, Any], d2: Dict[str, Any]) -> None:
             d1[k] = v
 
 
+def generate_default_config_file(config_filepath: Path) -> None:
+    """
+    Generates a default .ctxctx.yaml file with comments explaining each setting.
+    """
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        raise ConfigurationError(
+            "PyYAML is not installed. Cannot generate default configuration file. "
+            "Install with: pip install 'ctxctx[yaml]' (or pip install PyYAML)"
+        )
+
+    header = [
+        "# ctxctx Configuration File",
+        "# This file allows you to customize the behavior of ctxctx for your project.",
+        "# For more details, see the project's documentation.",
+        "",
+    ]
+
+    yaml_parts = []
+    # Use create_default_config_dict to get mutable, user-friendly values
+    defaults = create_default_config_dict()
+
+    # Iterate through the original template to maintain a consistent order
+    for key, _ in _DEFAULT_CONFIG_TEMPLATE.items():
+        if key in _INTERNAL_CONFIG_KEYS:
+            continue
+
+        comment = _CONFIG_COMMENTS.get(key)
+        if comment:
+            # Handle multi-line comments
+            comment_lines = [f"# {line.strip()}" for line in comment.split("\n")]
+            yaml_parts.append("\n".join(comment_lines))
+
+        # Use yaml.dump to format just the key-value pair correctly.
+        # This handles lists, booleans, etc., properly.
+        value = defaults.get(key)
+        # For ROOT, we want to show the default '.' not the resolved path
+        if key == "ROOT":
+            value_to_dump = {key: "."}
+        else:
+            value_to_dump = {key: value}
+
+        # dump the python object to a yaml formatted string.
+        # `sort_keys=False` preserves the order of single-item dict.
+        value_yaml = yaml.dump(value_to_dump, sort_keys=False, indent=2).strip()
+        yaml_parts.append(value_yaml)
+        yaml_parts.append("")  # Add a blank line for readability
+
+    content = "\n".join(header + yaml_parts)
+
+    try:
+        with open(config_filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+    except IOError as e:
+        raise ConfigurationError(
+            f"Failed to write default config file to '{config_filepath}': {e}"
+        ) from e
+
+
+def load_base_config_file(config_filepath: Path) -> Dict[str, Any]:
+    """
+    Loads configuration from a base YAML file (e.g., .ctxctx.yaml).
+    Returns an empty dictionary if the file is not found,
+    or raises ConfigurationError if parsing fails.
+    """
+    if not config_filepath.is_file():
+        return {}  # Not found, return empty dict as it's an optional file
+
+    try:
+        import yaml  # type: ignore
+
+        with open(config_filepath, "r", encoding="utf-8") as f:
+            config_data = yaml.safe_load(f)
+            if not isinstance(config_data, dict):
+                raise ConfigurationError(
+                    f"Invalid base configuration file '{config_filepath}'. "
+                    "Expected a dictionary at root."
+                )
+            return config_data
+    except ImportError:
+        raise ConfigurationError(
+            "PyYAML is not installed. Cannot use external configuration files. "
+            "Install with: pip install 'ctxctx[yaml]' (or pip install PyYAML)"
+        )
+    except yaml.YAMLError as e:
+        raise ConfigurationError(f"Error loading YAML config from '{config_filepath}': {e}")
+    except Exception as e:
+        raise ConfigurationError(f"Error reading config file '{config_filepath}': {e}")
+
+
 def load_profile_config(
     profile_name: str, root_path: Path, profile_config_filename: str
-) -> Dict[str, Any]:  # Changed root_path to Path
+) -> Dict[str, Any]:
     """
     Loads configuration from a YAML profile file and returns the selected
     profile data as a dictionary.
     Raises ConfigurationError if file not found or profile not found.
     """
-    profile_config_path = root_path / profile_config_filename  # Changed to Path / operator
+    profile_config_path = root_path / profile_config_filename
 
-    if not profile_config_path.is_file():  # Changed to Path.is_file()
+    if not profile_config_path.is_file():
         raise ConfigurationError(f"Profile configuration file not found: '{profile_config_path}'.")
 
     try:
@@ -224,5 +361,4 @@ def apply_profile_config(config_obj: Config, profile_data: Dict[str, Any]) -> No
     This merges values from profile_data into config_obj._data and then syncs
     the public attributes of the Config object.
     """
-    _merge_dicts(config_obj._data, profile_data)
-    config_obj._sync_attributes()  # Ensure all public attributes reflect the updated internal data
+    config_obj.merge(profile_data)

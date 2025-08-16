@@ -6,9 +6,17 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from . import __version__ as app_version
-from .config import Config, apply_profile_config, get_default_config, load_profile_config
+from .config import (
+    Config,
+    apply_profile_config,
+    generate_default_config_file,
+    get_default_config,
+    load_base_config_file,
+    load_profile_config,
+)
 from .content import get_file_content
 from .exceptions import (
+    ConfigurationError,
     FileReadError,
     OutputFormattingError,
     OutputWriteError,
@@ -29,7 +37,7 @@ class CtxCtxApp:
 
     def __init__(self, args: Any):  # Use Any for args to avoid circular import with argparse
         self.args = args
-        # Initialize config with defaults; it will be modified by profiles
+        # Initialize config with defaults; it will be modified by profiles and base config
         self.config: Config = get_default_config()
         # self.root_path is now directly accessible via self.config.root (which is a Path object)
         self.ignore_manager: Optional[IgnoreManager] = None
@@ -48,7 +56,8 @@ class CtxCtxApp:
         Orchestrates the main application setup steps.
         """
         self._init_logging()
-        self._set_root_path()  # Still needed to update config.root if args.root is used
+        # Config object handles root resolution during merge.
+        self._load_and_apply_base_config_file()  # NEW: Load general config file first
         self._load_and_apply_profile()
         self._initialize_ignore_manager()
 
@@ -56,13 +65,57 @@ class CtxCtxApp:
         """Initializes the main application logging."""
         setup_main_logging(self.args.debug, self.args.log_file)
 
-    def _set_root_path(self) -> None:
-        """Sets the absolute root directory in the config, if args specify it."""
-        # The initial config.root is already an absolute Path based on default.
-        # If args.root existed (which it doesn't currently in cli.py, but could be added),
-        # this would be the place to update self.config.root.
-        # For now, this effectively just logs the initial absolute root.
-        logger.debug(f"Root directory set to: {self.config.root}")
+    def _create_default_config_if_needed(self, config_filepath: Path) -> None:
+        """Helper to create the default config file if it's missing."""
+        if self.args.dry_run:
+            logger.info(
+                f"Config file '{config_filepath.name}' not found. "
+                "Skipping creation in dry-run mode."
+            )
+            return
+
+        try:
+            logger.info(
+                f"Config file '{config_filepath.name}' not found. Creating a default one..."
+            )
+            generate_default_config_file(config_filepath)
+            logger.info(
+                f"✅ A default '{config_filepath.name}' has been created. "
+                "You can customize it for future runs."
+            )
+        except (ConfigurationError, Exception) as e:
+            # This could happen if PyYAML is not installed or due to file permissions.
+            # Log a warning but don't fail the entire run. The app can proceed with defaults.
+            logger.warning(f"⚠️ Could not create default config file '{config_filepath.name}': {e}")
+
+    def _load_and_apply_base_config_file(self) -> None:
+        """
+        Loads and applies configuration from the default config file (e.g., .ctxctx.yaml).
+        If the file does not exist, it creates a default one.
+        """
+        config_filepath = self.config.root / self.config.default_config_filename
+        logger.debug(f"Attempting to load base config from: {config_filepath}")
+
+        if not config_filepath.is_file():
+            self._create_default_config_if_needed(config_filepath)
+            # After attempting to create, we return. The app will use defaults on this run.
+            return
+
+        try:
+            config_data = load_base_config_file(config_filepath)
+            if config_data:
+                self.config.merge(config_data)
+                logger.info(f"Applied base configuration from: {config_filepath}")
+            else:
+                logger.debug(f"Base configuration file found but was empty: {config_filepath}")
+        except ConfigurationError as e:
+            raise e  # Re-raise, as it's already a CtxError and well-formatted
+        except Exception as e:
+            # Catch any other unexpected errors and wrap them
+            raise ConfigurationError(
+                f"An unexpected error occurred while loading base config file"
+                f"'{config_filepath}': {e}"
+            ) from e
 
     def _load_and_apply_profile(self) -> None:
         """Loads and applies configuration from a specified profile, if any."""

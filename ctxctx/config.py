@@ -221,15 +221,8 @@ def _merge_dicts(d1: Dict[str, Any], d2: Dict[str, Any]) -> None:
 def generate_default_config_file(config_filepath: Path) -> None:
     """
     Generates a default .ctxctx.yaml file with comments explaining each setting.
+    This function does NOT require PyYAML to be installed.
     """
-    try:
-        import yaml  # type: ignore
-    except ImportError:
-        raise ConfigurationError(
-            "PyYAML is not installed. Cannot generate default configuration file. "
-            "Install with: pip install 'ctxctx[yaml]' (or pip install PyYAML)"
-        )
-
     header = [
         "# ctxctx Configuration File",
         "# This file allows you to customize the behavior of ctxctx for your project.",
@@ -237,12 +230,27 @@ def generate_default_config_file(config_filepath: Path) -> None:
         "",
     ]
 
+    # Helper to format values for our simple YAML output
+    def format_value(key: str, value: Any) -> str:
+        if isinstance(value, (list, set)):
+            if not value:
+                return f"{key}: []"
+            # Sort for consistent output, important for testing and readability
+            items = sorted(list(value))
+            yaml_list = [f"  - {item}" for item in items]
+            return f"{key}:\n" + "\n".join(yaml_list)
+        if isinstance(value, bool):
+            return f"{key}: {str(value).lower()}"
+        if key == "ROOT":
+            return f"{key}: '.'"  # Use the default string, not the resolved path
+        # For strings, numbers, etc., the default string representation is fine.
+        return f"{key}: {value}"
+
     yaml_parts = []
-    # Use create_default_config_dict to get mutable, user-friendly values
     defaults = create_default_config_dict()
 
     # Iterate through the original template to maintain a consistent order
-    for key, _ in _DEFAULT_CONFIG_TEMPLATE.items():
+    for key in _DEFAULT_CONFIG_TEMPLATE:
         if key in _INTERNAL_CONFIG_KEYS:
             continue
 
@@ -252,19 +260,8 @@ def generate_default_config_file(config_filepath: Path) -> None:
             comment_lines = [f"# {line.strip()}" for line in comment.split("\n")]
             yaml_parts.append("\n".join(comment_lines))
 
-        # Use yaml.dump to format just the key-value pair correctly.
-        # This handles lists, booleans, etc., properly.
-        value = defaults.get(key)
-        # For ROOT, we want to show the default '.' not the resolved path
-        if key == "ROOT":
-            value_to_dump = {key: "."}
-        else:
-            value_to_dump = {key: value}
-
-        # dump the python object to a yaml formatted string.
-        # `sort_keys=False` preserves the order of single-item dict.
-        value_yaml = yaml.dump(value_to_dump, sort_keys=False, indent=2).strip()
-        yaml_parts.append(value_yaml)
+        value_to_format = defaults.get(key)
+        yaml_parts.append(format_value(key, value_to_format))
         yaml_parts.append("")  # Add a blank line for readability
 
     content = "\n".join(header + yaml_parts)
@@ -273,6 +270,7 @@ def generate_default_config_file(config_filepath: Path) -> None:
         with open(config_filepath, "w", encoding="utf-8") as f:
             f.write(content)
     except IOError as e:
+        # Wrap the specific IO error in our custom exception type
         raise ConfigurationError(
             f"Failed to write default config file to '{config_filepath}': {e}"
         ) from e

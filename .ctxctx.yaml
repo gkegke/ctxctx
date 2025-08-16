@@ -1,61 +1,66 @@
-# .ctxctx.yaml
-# Base configuration for ctxctx
+# ctxctx Configuration File
+# This file allows you to customize the behavior of ctxctx for your project.
+# For more details, see the project's documentation.
 
-# Path to the root of your project. Default is '.' (current directory).
-# ROOT: "./my_project_root"
+# The root directory of the project. Defaults to the current directory.
+ROOT: '.'
 
-# Base name for output files (e.g., "my_context.md", "my_context.json")
-# OUTPUT_FILE_BASE_NAME: "context"
+# Base name for the output files (e.g., 'prompt_input_files.md').
+OUTPUT_FILE_BASE_NAME: prompt_input_files
 
-# List of output formats. Currently 'md' and 'json' are supported.
-# OUTPUT_FORMATS:
-#   - md
-#   - json
+# A list of output formats to generate. Options are 'md' and 'json'.
+OUTPUT_FORMATS:
+  - json
+  - md
 
-# Maximum depth for generating the directory tree.
-# Higher values show more nested directories/files.
-TREE_MAX_DEPTH: 5
+# Maximum depth for the directory tree generation.
+TREE_MAX_DEPTH: 3
 
-# Whether to exclude empty directories from the tree output.
-# TREE_EXCLUDE_EMPTY_DIRS: true
+# If true, empty directories will not be shown in the tree.
+TREE_EXCLUDE_EMPTY_DIRS: false
 
-# Maximum depth for searching files based on queries.
-# Higher values allow searching deeper into nested directories.
-SEARCH_MAX_DEPTH: 6
+# Maximum depth for file searches (glob patterns).
+SEARCH_MAX_DEPTH: 5
 
-# Maximum number of non-ignored matches allowed per query.
-# Prevents accidentally including too many files from a broad query.
-MAX_MATCHES_PER_QUERY: 10
+# Maximum number of file matches allowed per query before an error is raised.
+# # This prevents accidentally including too many files.
+MAX_MATCHES_PER_QUERY: 5
 
-# Explicit names of files/directories to ignore. These are simple patterns
-# applied to base names, relative paths, or path components.
+# A list of directory or file names to always ignore. These are exact matches.
 EXPLICIT_IGNORE_NAMES:
-  - ".git"
-  - ".env.local"
-  - "dist-server"
-  - "temp_files"
-  - "**/__tests__" # Example of a glob pattern to ignore test directories anywhere
+  - .DS_Store
+  - .git
+  - .gitignore
+  - .idea
+  - .venv
+  - .vscode
+  - __pycache__
+  - build
+  - coverage
+  - dist
+  - logs
+  - node_modules
+  - temp
+  - tmp
 
-# Substring patterns to ignore. If any part of a file's relative path
-# contains one of these substrings (case-insensitive), it will be ignored.
+# A list of patterns to ignore if they appear anywhere in a path.
 SUBSTRING_IGNORE_PATTERNS:
-  - "coverage-report"
-  - "backup"
+  - .env
+  - .next
+  - __snapshots__
+  - npm-debug.log
+  - package-lock.json
+  - playwright-report
+  - yarn.lock
 
-# Additional filenames to look for gitignore-style rules.
-# E.g., if you have a .dockerignore, rules from it will also be applied.
+# A list of other ignore files to respect (e.g., .dockerignore).
 ADDITIONAL_IGNORE_FILENAMES:
-  - ".npmignore"
-  - ".dockerignore"
+  - .dockerignore
+  - .eslintignore
+  - .npmignore
 
-# Name of the custom ignore file specific to ctxctx rules.
-# SCRIPT_DEFAULT_IGNORE_FILE: "ctxignore.txt"
-
-# Name of the file containing context profiles.
-# PROFILE_CONFIG_FILE: "my_profiles.yaml"
-
-# Whether to use .gitignore rules found in the project.
+# Whether to use the .gitignore file for ignoring files.
 USE_GITIGNORE: true
 
-# Path to the main .gitignore file relative to ROOT.
-# GITIGNORE_PATH: ".gitignore"
+# The path to the .gitignore file, relative to the root.
+GITIGNORE_PATH: .gitignore

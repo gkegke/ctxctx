@@ -12,4 +12,4 @@ logger.addHandler(
 logger.setLevel(logging.INFO)  # Default level
 
 # Changed: __version__ is now a static string, independent of config.py's CONFIG
-__version__ = "0.3.1"
+__version__ = "0.3.7"

@@ -374,7 +374,10 @@ Areas for future improvement include:
 *   **Advanced Ignore Logic:** More robust `.gitignore` parsing, including support for negation patterns (`!`).
 *   **Interactive Mode:** A CLI mode for interactively selecting files and folders to include in the context.
 
----
+
+Performance improvements being considered IF real world usage calls for it (increases codebase complexity):
+*   **Local Cache for Project File List and Content Hashes** Reduce need for repeated full walk -- a minor bottleneck.
+*   **Parallel File Content Reading**
 
 ### 📄 License
 

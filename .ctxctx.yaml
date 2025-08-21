@@ -40,3 +40,4 @@ ADDITIONAL_IGNORE_FILENAMES:
 - .eslintignore
 USE_GITIGNORE: true
 GITIGNORE_PATH: .gitignore
+USE_CACHE: true

@@ -1,4 +1,5 @@
 # tests/unit/test_search.py
+import os
 from pathlib import Path  # Added Path import
 from typing import Callable, List
 
@@ -7,6 +8,21 @@ import pytest
 from ctxctx.config import Config, get_default_config  # Added Config import
 from ctxctx.ignore import IgnoreManager
 from ctxctx.search import FORCE_INCLUDE_PREFIX, find_matches
+
+
+def collect_all_test_files(root: Path, is_ignored: Callable[[Path], bool]) -> List[Path]:
+    """Simulates CtxCtxApp._collect_all_project_files for tests."""
+    all_files: List[Path] = []
+    for dirpath_str, dirnames, filenames in os.walk(root, topdown=True):
+        current_dir_path = Path(dirpath_str)
+
+        dirnames[:] = [d for d in dirnames if not is_ignored(current_dir_path / d)]
+
+        for filename in filenames:
+            full_path = current_dir_path / filename
+            if not is_ignored(full_path):
+                all_files.append(full_path)
+    return all_files
 
 
 @pytest.fixture
@@ -74,9 +90,10 @@ def test_find_matches_exact_file(search_setup_fs):
     """Tests finding an exact file path."""
     root, create_is_ignored, test_config = search_setup_fs
     is_ignored = create_is_ignored(test_config)  # Pass the config to helper
+    all_files = collect_all_test_files(root, is_ignored)
     query = "main.py"
     # Pass test_config object instead of root and search_max_depth
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1
     assert matches[0]["path"] == root / "main.py"  # Changed to Path object comparison
     assert matches[0]["line_ranges"] == []
@@ -86,8 +103,9 @@ def test_find_matches_glob_pattern(search_setup_fs):
     """Tests finding files using a glob pattern."""
     root, create_is_ignored, test_config = search_setup_fs
     is_ignored = create_is_ignored(test_config)  # Pass the config to helper
+    all_files = collect_all_test_files(root, is_ignored)
     query = "*.md"
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert (
         len(matches) == 3
     )  # Changed: Expected 3 files now (README.md, docs/guide.md, src/README.md)
@@ -102,8 +120,9 @@ def test_find_matches_line_range_query(search_setup_fs):
     """Tests parsing and returning line range information from a query."""
     root, create_is_ignored, test_config = search_setup_fs
     is_ignored = create_is_ignored(test_config)  # Pass the config to helper
+    all_files = collect_all_test_files(root, is_ignored)
     query = "src/utils.py:10,20"
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1
     assert matches[0]["path"] == root / "src" / "utils.py"
     assert matches[0]["line_ranges"] == [(10, 20)]
@@ -114,40 +133,39 @@ def test_find_matches_ignores_excluded_files(search_setup_fs, fs):
     root, create_is_ignored, test_config = search_setup_fs
     # Pass the config to helper to ensure proper ignore rules are loaded
     is_ignored = create_is_ignored(test_config)
+    all_files = collect_all_test_files(root, is_ignored)
 
     # Test file ignored by substring
     query_ignored_file_substring = "src/temp_data.log"
     matches_ignored_file_substring = find_matches(
-        query_ignored_file_substring, is_ignored, test_config
+        query_ignored_file_substring, all_files, test_config
     )
     assert len(matches_ignored_file_substring) == 0
 
     # Test file ignored by .gitignore (glob)
     query_ignored_file_glob = "app.log"
-    matches_ignored_file_glob = find_matches(query_ignored_file_glob, is_ignored, test_config)
+    matches_ignored_file_glob = find_matches(query_ignored_file_glob, all_files, test_config)
     assert len(matches_ignored_file_glob) == 0
 
     # Test directory ignored by explicit name (node_modules)
     query_ignored_dir_explicit = "node_modules"
-    matches_ignored_dir_explicit = find_matches(
-        query_ignored_dir_explicit, is_ignored, test_config
-    )
+    matches_ignored_dir_explicit = find_matches(query_ignored_dir_explicit, all_files, test_config)
     assert len(matches_ignored_dir_explicit) == 0
 
     query_file_in_ignored_dir_explicit = "node_modules/lib.js"
     matches_file_in_ignored_dir_explicit = find_matches(
-        query_file_in_ignored_dir_explicit, is_ignored, test_config
+        query_file_in_ignored_dir_explicit, all_files, test_config
     )
     assert len(matches_file_in_ignored_dir_explicit) == 0
 
     # Test directory ignored by .gitignore
     query_git_ignored_dir = "git_ignored_dir/"
-    matches_git_ignored_dir = find_matches(query_git_ignored_dir, is_ignored, test_config)
+    matches_git_ignored_dir = find_matches(query_git_ignored_dir, all_files, test_config)
     assert len(matches_git_ignored_dir) == 0
 
     query_file_in_git_ignored_dir = "git_ignored_dir/ignored_file.txt"
     matches_file_in_git_ignored_dir = find_matches(
-        query_file_in_git_ignored_dir, is_ignored, test_config
+        query_file_in_git_ignored_dir, all_files, test_config
     )
     assert len(matches_file_in_git_ignored_dir) == 0
 
@@ -156,8 +174,9 @@ def test_find_matches_directory_query(search_setup_fs):
     """Tests that a directory query returns all non-ignored files within it."""
     root, create_is_ignored, test_config = search_setup_fs
     is_ignored = create_is_ignored(test_config)  # Pass the config to helper
+    all_files = collect_all_test_files(root, is_ignored)
     query = "src/"
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 2  # Now includes src/README.md as it's not ignored
     assert any(m["path"] == root / "src" / "utils.py" for m in matches)
     assert any(m["path"] == root / "src" / "README.md" for m in matches)
@@ -181,8 +200,9 @@ def test_find_matches_force_include_file(search_setup_fs):
     # The patterns passed to IgnoreManager should NOT contain the prefix
     force_include_patterns = ["node_modules/lib.js"]
     is_ignored = create_is_ignored(test_config, force_include_patterns=force_include_patterns)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1
     assert matches[0]["path"] == root / "node_modules" / "lib.js"
     assert matches[0]["line_ranges"] == []
@@ -201,8 +221,9 @@ def test_find_matches_force_include_glob(search_setup_fs):
     # The patterns passed to IgnoreManager should NOT contain the prefix
     force_include_patterns = ["*.log"]
     is_ignored = create_is_ignored(test_config, force_include_patterns=force_include_patterns)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     # Should find 'src/temp_data.log' and 'app.log'
     assert len(matches) == 2
     assert any(m["path"] == root / "src" / "temp_data.log" for m in matches)
@@ -225,8 +246,9 @@ def test_find_matches_force_include_with_line_ranges(search_setup_fs):
     # The pattern passed to IgnoreManager should NOT contain the prefix
     force_include_patterns = ["node_modules/lib.js"]
     is_ignored = create_is_ignored(test_config, force_include_patterns=force_include_patterns)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1
     assert matches[0]["path"] == root / "node_modules" / "lib.js"
     assert matches[0]["line_ranges"] == [(1, 5)]
@@ -245,8 +267,9 @@ def test_find_matches_force_include_directory(search_setup_fs):
     # The pattern passed to IgnoreManager should NOT contain the prefix
     force_include_patterns = ["git_ignored_dir/"]
     is_ignored = create_is_ignored(test_config, force_include_patterns=force_include_patterns)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1  # Should find 'git_ignored_dir/ignored_file.txt'
     assert matches[0]["path"] == root / "git_ignored_dir" / "ignored_file.txt"
     assert matches[0]["line_ranges"] == []
@@ -263,8 +286,9 @@ def test_find_matches_force_include_with_no_effect_if_not_ignored(search_setup_f
 
     # `is_ignored` is created without force-include patterns as there's no override needed
     is_ignored = create_is_ignored(test_config)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1
     assert matches[0]["path"] == root / "main.py"
     assert matches[0]["line_ranges"] == []
@@ -285,8 +309,9 @@ def test_find_matches_force_include_simple_filename_finds_all_matches(search_set
 
     # is_ignored is created without force-include patterns as these files are not ignored
     is_ignored = create_is_ignored(test_config)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
 
     # Changed: After refactoring, 'force:README.md' will now find ALL README.md files
     # because the early exit for simple filenames is removed, and is_ignored does not ignore them.
@@ -306,8 +331,9 @@ def test_find_matches_force_include_simple_filename_with_line_ranges_finds_all_m
     root, create_is_ignored, test_config = search_setup_fs
     query = f"{FORCE_INCLUDE_PREFIX}LICENSE:1,5"
     is_ignored = create_is_ignored(test_config)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
 
     # Changed: After refactoring, 'force:LICENSE:1,5' will now find ALL LICENSE files
     # because the early exit for simple filenames is removed, and is_ignored does not ignore them.
@@ -335,8 +361,9 @@ def test_find_matches_force_include_simple_filename_not_at_root_finds_in_subdir(
 
     query = f"{FORCE_INCLUDE_PREFIX}non_root_file.txt"
     is_ignored = create_is_ignored(test_config)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1
     assert matches[0]["path"] == non_root_file
 
@@ -354,8 +381,9 @@ def test_find_matches_force_include_dotted_filename_finds_all_matches(search_set
     # any default ignore rule for `.gitignore` files.
     force_include_patterns = [".gitignore"]
     is_ignored = create_is_ignored(test_config, force_include_patterns=force_include_patterns)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 2
     assert any(m["path"] == root / ".gitignore" for m in matches)
     assert any(m["path"] == root / "src" / ".gitignore" for m in matches)
@@ -378,8 +406,9 @@ def test_find_matches_force_include_path_with_slash_still_searches_deeply(search
     # The is_ignored function needs to know about the force-include pattern
     force_include_patterns = ["git_ignored_dir/ignored_file.txt"]
     is_ignored = create_is_ignored(test_config, force_include_patterns=force_include_patterns)
+    all_files = collect_all_test_files(root, is_ignored)
 
-    matches = find_matches(query, is_ignored, test_config)
+    matches = find_matches(query, all_files, test_config)
     assert len(matches) == 1
     assert matches[0]["path"] == ignored_deep_file
     assert matches[0]["line_ranges"] == []

@@ -94,6 +94,20 @@ class IgnoreManager:
                     f"Path {file_path} force-included by basename glob match: '{pattern_str}'"
                 )
                 return True
+
+            # Case 5: Check if file_path is a directory that is an ancestor of a
+            # force-included path. This prevents pruning of parent directories during os.walk.
+            if file_path.is_dir():
+                try:
+                    # Check if the force-include pattern path is a child of the current file_path
+                    normalized_pattern_path.relative_to(relative_file_path)
+                    logger.debug(
+                        f"Directory {file_path} force-included because it contains "
+                        f"a force-included path: '{pattern_str}'"
+                    )
+                    return True
+                except ValueError:
+                    pass  # Not a parent of this pattern
         return False
 
     def init_ignore_set(self) -> None:

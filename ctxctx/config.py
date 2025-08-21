@@ -55,6 +55,7 @@ _DEFAULT_CONFIG_TEMPLATE: Dict[str, Any] = {
     "VERSION": "0.1.0",
     "USE_GITIGNORE": True,
     "GITIGNORE_PATH": ".gitignore",
+    "USE_CACHE": True,
 }
 
 # NEW: Keys from the default config that should not be written to the user-facing file.
@@ -94,6 +95,7 @@ class Config:
         self.version: str = ""
         self.use_gitignore: bool = False
         self.gitignore_path: str = ""
+        self.use_cache: bool = True
 
         self._sync_attributes()  # Initialize attributes from initial_data
 
@@ -120,6 +122,7 @@ class Config:
         self.version = self._data.get("VERSION", "0.1.0")
         self.use_gitignore = self._data.get("USE_GITIGNORE", True)
         self.gitignore_path = self._data.get("GITIGNORE_PATH", ".gitignore")
+        self.use_cache = self._data.get("USE_CACHE", True)
 
     # Optional: Allow dictionary-like access for generic keys if needed, though attribute
     # access is preferred

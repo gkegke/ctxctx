@@ -2,10 +2,12 @@
 import datetime
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from . import __version__ as app_version
+from . import cache
 from .config import (
     Config,
     apply_profile_config,
@@ -45,7 +47,13 @@ class CtxCtxApp:
         self.is_ignored_func: Optional[Callable[[Path], bool]] = None
         # Store original queries, and a mutable list for processing
         self.original_queries = list(args.queries)
-        self.queries = list(args.queries)
+        # Filter out empty lines and lines that are comments before processing.
+        # This makes the app robust even if argparse has issues with the arg file.
+        self.queries = [
+            q
+            for q in (line.strip() for line in self.original_queries)
+            if q and not q.startswith("#")
+        ]
 
         self._setup_application()
         logger.info(f"--- LLM Context Builder (v{app_version}) ---")
@@ -130,7 +138,13 @@ class CtxCtxApp:
         logger.info(f"Active Profile: {self.args.profile}")
 
         if "queries" in profile_data:
-            self.queries.extend(profile_data["queries"])
+            # Also filter profile queries for comments/empty lines
+            profile_queries = [
+                q
+                for q in (line.strip() for line in profile_data["queries"])
+                if q and not q.startswith("#")
+            ]
+            self.queries.extend(profile_queries)
 
     def _initialize_ignore_manager(self) -> None:
         """Initializes the IgnoreManager with global and profile-specific ignore rules."""
@@ -206,11 +220,44 @@ class CtxCtxApp:
             )
         return tree_output
 
+    def _collect_all_project_files(self) -> List[Path]:
+        """
+        Walks the entire project directory once to collect all non-ignored files.
+        This is a major performance optimization. It now uses a cache.
+        """
+        # NEW: Caching logic
+        logger.debug("Attempting to load file list from cache...")
+        cached_files = cache.load_cache(self.config, self.args.profile)
+        if cached_files is not None:
+            return cached_files
+
+        logger.info("Cache not found or invalid. Performing a full file system walk...")
+        all_files: List[Path] = []
+        if not self.is_ignored_func:
+            logger.error("Ignore function not initialized before file collection.")
+            return []
+
+        for dirpath_str, dirnames, filenames in os.walk(self.config.root, topdown=True):
+            current_dir_path = Path(dirpath_str)
+
+            # Prune ignored directories from traversal for efficiency
+            # We iterate over a copy of dirnames because we're modifying it in place
+            dirnames[:] = [d for d in dirnames if not self.is_ignored_func(current_dir_path / d)]
+
+            for filename in filenames:
+                full_path = current_dir_path / filename
+                if not self.is_ignored_func(full_path):
+                    all_files.append(full_path)
+
+        logger.debug(f"Collected {len(all_files)} non-ignored files from project walk.")
+        return all_files
+
     def _process_all_queries(
         self,
+        all_project_files: List[Path],
     ) -> Tuple[List[Dict[str, Any]], Set[Path]]:  # Changed Set[str] to Set[Path]
         """
-        Processes all input queries, finds matches, and consolidates them.
+        Processes all input queries against a pre-collected list of project files.
         Returns a list of matched file data and a set of unique matched paths.
         """
         logger.info("Processing file queries...")
@@ -226,7 +273,7 @@ class CtxCtxApp:
             logger.debug(f"Processing query: '{query}'")
             try:
                 matches = find_matches(
-                    query, self.is_ignored_func, self.config  # Pass the config object
+                    query, all_project_files, self.config  # Pass pre-walked files
                 )
 
                 if not matches:
@@ -456,7 +503,11 @@ class CtxCtxApp:
 
         tree_output = self._generate_project_structure()
 
-        all_matched_files_data, unique_matched_paths = self._process_all_queries()
+        # Perform the single, efficient file system walk
+        all_project_files = self._collect_all_project_files()
+
+        # Process queries against the in-memory list of files
+        all_matched_files_data, unique_matched_paths = self._process_all_queries(all_project_files)
 
         output_markdown_lines: List[str] = [
             f"# Project Structure for {self.config.root.name}\n"

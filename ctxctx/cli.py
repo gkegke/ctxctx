@@ -47,7 +47,18 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--profile",
         type=str,
-        help="Name of a predefined context profile from 'prompt_profiles.yaml'.",
+        nargs="+",  # Allow one or more arguments for --profile
+        action="append",  # Allow multiple uses of --profile
+        help="Name of one or more predefined context profiles from 'prompt_profiles.yaml'.",
+    )
+    parser.add_argument(
+        "--list-files",
+        action="store_true",
+        help=(
+            "List all non-ignored files based on current config and profile, "
+            "then exit.\\nRedirect output to a file (e.g., 'ctxctx --list-files > cargs') "
+            "to create an argfile."
+        ),
     )
     parser.add_argument(
         "--debug",

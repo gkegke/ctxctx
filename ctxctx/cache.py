@@ -21,22 +21,18 @@ def _get_cache_filepath(config: Config) -> Path:
 def _get_dependency_mtimes(config: Config, profile_name: Optional[str]) -> Dict[Path, float]:
     """
     Gets the modification times of all files that can invalidate the cache.
-    This includes config files and all active ignore files.
+    This includes the main config file (which now also contains profiles)
+    and all active ignore files.
     """
     mtimes: Dict[Path, float] = {}
     files_to_check: List[Path] = []
 
-    # 1. Base config file
+    # 1. Main config file (now contains profiles)
     files_to_check.append(config.root / config.default_config_filename)
 
-    # 2. Profile config file (if a profile is used)
-    if profile_name:
-        files_to_check.append(config.root / config.profile_config_file)
-
-    # 3. All ignore files used by IgnoreManager
+    # 2. All ignore files used by IgnoreManager
     if config.use_gitignore:
         files_to_check.append(config.root / config.gitignore_path)
-    files_to_check.append(config.root / config.script_default_ignore_file)
     for fname in config.additional_ignore_filenames:
         files_to_check.append(config.root / fname)
 
@@ -46,7 +42,6 @@ def _get_dependency_mtimes(config: Config, profile_name: Optional[str]) -> Dict[
                 mtimes[fpath] = fpath.stat().st_mtime
             except OSError as e:
                 logger.warning(f"Could not stat dependency file '{fpath}': {e}")
-                # If we can't stat a file, we can't trust the cache
                 return {}
     return mtimes
 
@@ -70,7 +65,6 @@ def load_cache(config: Config, profile_name: Optional[str]) -> Optional[List[Pat
         with open(cache_filepath, "rb") as f:
             data = pickle.load(f)
 
-        # Basic validation
         if (
             not isinstance(data, dict)
             or data.get("version") != CACHE_VERSION
@@ -80,7 +74,6 @@ def load_cache(config: Config, profile_name: Optional[str]) -> Optional[List[Pat
             logger.warning("Cache data is corrupt or outdated. Invalidating.")
             return None
 
-        # Invalidation check: Compare dependency modification times
         current_mtimes = _get_dependency_mtimes(config, profile_name)
         cached_mtimes = data["metadata"].get("mtimes", {})
 

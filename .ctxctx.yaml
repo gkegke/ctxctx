@@ -13,6 +13,7 @@ SEARCH_MAX_DEPTH: 5
 MAX_MATCHES_PER_QUERY: 5
 EXPLICIT_IGNORE_NAMES:
 - .DS_Store
+- .ctxctx.yaml
 - .git
 - .gitignore
 - .idea
@@ -27,17 +28,43 @@ EXPLICIT_IGNORE_NAMES:
 - temp
 - tmp
 SUBSTRING_IGNORE_PATTERNS:
+- .env
+- .next
+- __snapshots__
+- npm-debug.log
 - package-lock.json
 - playwright-report
 - yarn.lock
-- npm-debug.log
-- .env
-- __snapshots__
-- .next
 ADDITIONAL_IGNORE_FILENAMES:
 - .dockerignore
-- .npmignore
 - .eslintignore
+- .npmignore
 USE_GITIGNORE: true
 GITIGNORE_PATH: .gitignore
 USE_CACHE: true
+
+# NEW: Profiles are now defined directly within this file.
+# You can define named sets of include/exclude rules and queries here.
+profiles:
+  all:
+    description: Includes all ctxctx and tests.
+    include:
+    - ctxctx/**
+    - tests/**
+  ctxNotInit:
+    description: Includes all ctxctx files except initialization files.
+    include:
+    - ctxctx/**
+    exclude:
+    - ctxctx/__init__.py
+  search:
+    description: Includes search-related ctxctx files.
+    include:
+    - ctxctx/search.py
+    - tests/unit/test_search.py
+  cliAndApp:
+    description: Includes CLI and application-related ctxctx files.
+    include:
+    - ctxctx/cli.py
+    - ctxctx/app.py
+    - tests/unit/test_ignore.py

@@ -1,8 +1,11 @@
+# [FILE: /ctxctx/app.py]
 # ctxctx/app.py
 import datetime
 import json
 import logging
 import os
+import sys
+from itertools import chain
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -28,7 +31,8 @@ from .exceptions import (
 from .ignore import IgnoreManager
 from .logging_utils import setup_main_logging
 from .output import format_file_content_json, format_file_content_markdown
-from .search import FORCE_INCLUDE_PREFIX, find_matches
+from .resolver import FileResolver
+from .search import FORCE_INCLUDE_PREFIX
 from .tree import generate_tree_string
 
 logger = logging.getLogger(__name__)
@@ -39,39 +43,81 @@ class CtxCtxApp:
 
     def __init__(self, args: Any):  # Use Any for args to avoid circular import with argparse
         self.args = args
-        # Initialize config with defaults; it will be modified by profiles and base config
         self.config: Config = get_default_config()
-        # self.root_path is now directly accessible via self.config.root (which is a Path object)
         self.ignore_manager: Optional[IgnoreManager] = None
-        # is_ignored_func now expects Path objects
         self.is_ignored_func: Optional[Callable[[Path], bool]] = None
-        # Store original queries, and a mutable list for processing
+        self.profile_data: Dict[str, Any] = {}
+        self.resolver: Optional[FileResolver] = None  # Correctly initialized as optional
+
         self.original_queries = list(args.queries)
-        # Filter out empty lines and lines that are comments before processing.
-        # This makes the app robust even if argparse has issues with the arg file.
-        self.queries = [
-            q
-            for q in (line.strip() for line in self.original_queries)
-            if q and not q.startswith("#")
-        ]
+        self.queries: List[str] = []
+        self.active_profiles: List[str] = []
 
         self._setup_application()
         logger.info(f"--- LLM Context Builder (v{app_version}) ---")
         self._log_initial_configuration()
 
+    def _pre_process_queries_for_profiles(self) -> None:
+        """
+        Scans all incoming arguments for profile flags, activates them,
+        and separates them from file/path queries. This handles both the dedicated
+        `--profile` arg and profile flags inside argfiles.
+        """
+        # 1. Handle the dedicated --profile argument from argparse
+        if self.args.profile:
+            # `action="append"` with `nargs="+` creates a list of lists,
+            # e.g., [['search', 'cliAndApp']]
+            # We need to flatten it into a single list of profile names.
+            self.active_profiles.extend(chain.from_iterable(self.args.profile))
+
+        # 2. Handle `--profile <name>` pairs found within positional queries (from argfiles)
+        remaining_queries = []
+        query_iterator = iter(self.original_queries)
+        for q in query_iterator:
+            q_stripped = q.strip()
+            if not q_stripped or q_stripped.startswith("#"):
+                continue
+
+            if q_stripped == "--profile":
+                try:
+                    profile_name = next(query_iterator).strip()
+                    if profile_name and not profile_name.startswith("-"):
+                        self.active_profiles.append(profile_name)
+                    else:
+                        logger.warning(
+                            f"Ignoring invalid profile name after '--profile': {profile_name}"
+                        )
+                except StopIteration:
+                    logger.warning("Ignoring '--profile' flag at end of query list with no name.")
+            elif q_stripped.startswith("--profile"):
+                parts = q_stripped.split(maxsplit=1)
+                if len(parts) > 1:
+                    self.active_profiles.append(parts[1])
+                else:
+                    logger.warning(f"Ignoring malformed profile flag: {q_stripped}")
+            else:
+                remaining_queries.append(q_stripped)
+
+        self.queries = remaining_queries
+        self.active_profiles = sorted(list(set(self.active_profiles)))  # Deduplicate
+
     def _setup_application(self) -> None:
         """
-        Orchestrates the main application setup steps.
+        Orchestrates the main application setup steps in the correct order.
         """
         self._init_logging()
-        # Config object handles root resolution during merge.
-        self._load_and_apply_base_config_file()  # NEW: Load general config file first
-        self._load_and_apply_profile()
+        self._pre_process_queries_for_profiles()
+        self._load_and_apply_base_config_file()
+        self._load_and_apply_profiles()
+
+        # CRITICAL FIX: Initialize resolver and ignore_manager AFTER all configs are loaded.
+        self.resolver = FileResolver(self.config)
         self._initialize_ignore_manager()
 
     def _init_logging(self) -> None:
         """Initializes the main application logging."""
-        setup_main_logging(self.args.debug, self.args.log_file)
+        log_stream = sys.stderr if self.args.list_files else sys.stdout
+        setup_main_logging(self.args.debug, self.args.log_file, stream=log_stream)
 
     def _create_default_config_if_needed(self, config_filepath: Path) -> None:
         """Helper to create the default config file if it's missing."""
@@ -92,8 +138,6 @@ class CtxCtxApp:
                 "You can customize it for future runs."
             )
         except (ConfigurationError, Exception) as e:
-            # This could happen if PyYAML is not installed or due to file permissions.
-            # Log a warning but don't fail the entire run. The app can proceed with defaults.
             logger.warning(f"⚠️ Could not create default config file '{config_filepath.name}': {e}")
 
     def _load_and_apply_base_config_file(self) -> None:
@@ -106,7 +150,6 @@ class CtxCtxApp:
 
         if not config_filepath.is_file():
             self._create_default_config_if_needed(config_filepath)
-            # After attempting to create, we return. The app will use defaults on this run.
             return
 
         try:
@@ -117,50 +160,51 @@ class CtxCtxApp:
             else:
                 logger.debug(f"Base configuration file found but was empty: {config_filepath}")
         except ConfigurationError as e:
-            raise e  # Re-raise, as it's already a CtxError and well-formatted
+            raise e
         except Exception as e:
-            # Catch any other unexpected errors and wrap them
             raise ConfigurationError(
                 f"An unexpected error occurred while loading base config file"
                 f"'{config_filepath}': {e}"
             ) from e
 
-    def _load_and_apply_profile(self) -> None:
-        """Loads and applies configuration from a specified profile, if any."""
-        if not self.args.profile:
+    def _load_and_apply_profiles(self) -> None:
+        """Loads and applies configuration from all active profiles, merging their settings."""
+        if not self.active_profiles:
             return
 
-        # Removed the try-except and sys.exit here. ConfigurationError is now propagated.
-        profile_data = load_profile_config(
-            self.args.profile, self.config.root, self.config.profile_config_file
-        )
-        apply_profile_config(self.config, profile_data)  # Pass the config object
-        logger.info(f"Active Profile: {self.args.profile}")
+        logger.info(f"Active Profile(s): {', '.join(self.active_profiles)}")
+        for profile_name in self.active_profiles:
+            try:
+                profile_data_single = load_profile_config(
+                    profile_name, self.config.root, self.config.default_config_filename
+                )
+                config_from_profile = {
+                    k: v
+                    for k, v in profile_data_single.items()
+                    if k not in ["include", "exclude", "queries", "description"]
+                }
+                if config_from_profile:
+                    apply_profile_config(self.config, config_from_profile)
 
-        if "queries" in profile_data:
-            # Also filter profile queries for comments/empty lines
-            profile_queries = [
-                q
-                for q in (line.strip() for line in profile_data["queries"])
-                if q and not q.startswith("#")
-            ]
-            self.queries.extend(profile_queries)
+                for key in ["queries", "include", "exclude"]:
+                    if key in profile_data_single:
+                        self.profile_data.setdefault(key, []).extend(profile_data_single[key])
+
+            except ConfigurationError as e:
+                logger.error(f"Could not load profile '{profile_name}': {e}")
+                continue
 
     def _initialize_ignore_manager(self) -> None:
         """Initializes the IgnoreManager with global and profile-specific ignore rules."""
+        all_queries_for_force_include = self.queries + self.profile_data.get("queries", [])
+
         force_include_patterns = []
-        for q in self.queries:
+        for q in all_queries_for_force_include:
             if q.startswith(FORCE_INCLUDE_PREFIX):
-                # The path for force_include_patterns should not contain line ranges,
-                # as the `is_ignored` function works on full paths to check if they
-                # *should* be ignored,
-                # not what specific part of them is relevant.
-                # Convert to Path object for consistency, then to string for the pattern list.
                 path_part = Path(q[len(FORCE_INCLUDE_PREFIX) :].split(":", 1)[0])
                 force_include_patterns.append(str(path_part))
-        self.ignore_manager = IgnoreManager(
-            self.config, force_include_patterns
-        )  # Pass the config object
+
+        self.ignore_manager = IgnoreManager(self.config, force_include_patterns)
         self.is_ignored_func = self.ignore_manager.is_ignored
 
     def _log_initial_configuration(self) -> None:
@@ -170,11 +214,10 @@ class CtxCtxApp:
         logger.info(f"Search Max Depth: {self.config.search_max_depth}")
         logger.info(f"Max Matches Per Query: {self.config.max_matches_per_query}")
 
-        if not self.ignore_manager:  # Should not happen after _initialize_ignore_manager
+        if not self.ignore_manager:
             logger.error("IgnoreManager not initialized during logging setup.")
             return
 
-        # Fix: Change _explicit_ignore_set to _hardcoded_explicit_names
         all_ignore_patterns_display = sorted(
             list(self.ignore_manager._hardcoded_explicit_names)
             + self.ignore_manager._substring_ignore_patterns
@@ -208,11 +251,9 @@ class CtxCtxApp:
         """Generates the directory tree string."""
         logger.info("Generating directory tree...")
         tree_output = generate_tree_string(
-            self.config.root,  # config.root is already a Path
+            self.config.root,
             self.is_ignored_func,
-            self.config,  # Pass the config object
-            # Individual tree-related config values are now read directly from
-            # config object in tree.py
+            self.config,
         )
         if not tree_output:
             logger.warning(
@@ -225,10 +266,10 @@ class CtxCtxApp:
         Walks the entire project directory once to collect all non-ignored files.
         This is a major performance optimization. It now uses a cache.
         """
-        # NEW: Caching logic
         logger.debug("Attempting to load file list from cache...")
-        cached_files = cache.load_cache(self.config, self.args.profile)
+        cached_files = cache.load_cache(self.config, ",".join(self.active_profiles))
         if cached_files is not None:
+            cache.save_cache(self.config, ",".join(self.active_profiles), cached_files)
             return cached_files
 
         logger.info("Cache not found or invalid. Performing a full file system walk...")
@@ -239,116 +280,65 @@ class CtxCtxApp:
 
         for dirpath_str, dirnames, filenames in os.walk(self.config.root, topdown=True):
             current_dir_path = Path(dirpath_str)
-
-            # Prune ignored directories from traversal for efficiency
-            # We iterate over a copy of dirnames because we're modifying it in place
             dirnames[:] = [d for d in dirnames if not self.is_ignored_func(current_dir_path / d)]
-
             for filename in filenames:
                 full_path = current_dir_path / filename
                 if not self.is_ignored_func(full_path):
                     all_files.append(full_path)
 
+        cache.save_cache(self.config, ",".join(self.active_profiles), all_files)
         logger.debug(f"Collected {len(all_files)} non-ignored files from project walk.")
         return all_files
 
-    def _process_all_queries(
+    def _process_and_resolve_files(
         self,
         all_project_files: List[Path],
-    ) -> Tuple[List[Dict[str, Any]], Set[Path]]:  # Changed Set[str] to Set[Path]
+    ) -> Tuple[List[Dict[str, Any]], Set[Path]]:
         """
-        Processes all input queries against a pre-collected list of project files.
-        Returns a list of matched file data and a set of unique matched paths.
+        Delegates file resolution to the FileResolver.
         """
-        logger.info("Processing file queries...")
-        all_matched_files_data: List[Dict[str, Any]] = []
-        unique_matched_paths: Set[Path] = set()  # Changed to Path
-        consolidated_matches: Dict[Path, Dict[str, Any]] = {}  # Keys are now Path objects
+        if not self.resolver:
+            raise ConfigurationError("FileResolver was not initialized correctly.")
 
-        if not self.queries:
-            logger.info("No specific file queries provided. " "Including directory tree only.\n")
-            return [], set()
+        logger.info("Resolving files based on profile rules and queries...")
 
-        for query in self.queries:
-            logger.debug(f"Processing query: '{query}'")
-            try:
-                matches = find_matches(
-                    query, all_project_files, self.config  # Pass pre-walked files
-                )
+        profile_queries_raw = self.profile_data.get("queries", [])
+        profile_queries = [
+            q
+            for q in (line.strip() for line in profile_queries_raw)
+            if q and not q.startswith("#")
+        ]
+        all_queries = profile_queries + self.queries
 
-                if not matches:
-                    logger.warning(f"⚠️ No non-ignored matches found for: '{query}'")
-                    continue
-
-                if len(matches) > self.config.max_matches_per_query:
-                    # Ensure example_paths are strings for error message
-                    example_paths = [str(m["path"].relative_to(self.config.root)) for m in matches]
-                    # Raise TooManyMatchesError directly; it will be caught by the main handler.
-                    raise TooManyMatchesError(
-                        query,
-                        len(matches),
-                        self.config.max_matches_per_query,
-                        example_paths,
-                    )
-
-                logger.info(f"✅ Using {len(matches)} non-ignored match(es) for " f"'{query}'")
-                for match in matches:
-                    path: Path = match["path"]  # path is now Path object
-                    # Line ranges from search.py are List[List[int]] for JSON
-                    # serialization convenience
-                    current_line_ranges = match.get("line_ranges", [])
-
-                    if path not in consolidated_matches:
-                        consolidated_matches[path] = {
-                            "path": path,  # Store Path object
-                            "line_ranges": current_line_ranges,
-                        }
-                    else:
-                        existing_line_ranges = consolidated_matches[path].get("line_ranges", [])
-                        # Combine and sort line ranges, ensuring no duplicates.
-                        # Convert to tuples for set to ensure hashability, then back
-                        # to list of lists.
-                        combined_ranges = sorted(
-                            list(set(tuple(r) for r in existing_line_ranges + current_line_ranges))
-                        )
-                        consolidated_matches[path]["line_ranges"] = [
-                            list(r) for r in combined_ranges
-                        ]
-                    unique_matched_paths.add(path)
-
-            except TooManyMatchesError:
-                # Re-raise the TooManyMatchesError to be caught by the top-level handler
-                raise
-            except Exception as e:
-                # Catch any other unexpected errors during query processing and raise a
-                # specific exception
-                raise QueryProcessingError(
-                    f"An unexpected error occurred processing query '{query}': {e}", query=query
-                ) from e
-
-        all_matched_files_data = list(consolidated_matches.values())
-        return all_matched_files_data, unique_matched_paths
+        try:
+            return self.resolver.resolve(
+                all_project_files=all_project_files,
+                include_patterns=self.profile_data.get("include", []),
+                exclude_patterns=self.profile_data.get("exclude", []),
+                queries=all_queries,
+            )
+        except TooManyMatchesError:
+            raise
+        except Exception as e:
+            raise QueryProcessingError(
+                f"An unexpected error occurred during file resolution: {e}"
+            ) from e
 
     def _format_all_content_for_output(
         self, all_matched_files_data: List[Dict[str, Any]]
-    ) -> Tuple[
-        List[str], List[Dict[str, Any]], Dict[Path, Optional[int]]
-    ]:  # Changed Dict[str, Optional[int]] to Dict[Path, Optional[int]]
+    ) -> Tuple[List[str], List[Dict[str, Any]], Dict[Path, Optional[int]]]:
         """
         Formats matched file content for Markdown and JSON output.
         Returns markdown content lines, JSON file data list, and character counts.
         """
         markdown_content_lines: List[str] = []
         json_files_data_list: List[Dict[str, Any]] = []
-        file_char_counts: Dict[Path, Optional[int]] = {}  # Changed to Path
+        file_char_counts: Dict[Path, Optional[int]] = {}
 
         if all_matched_files_data:
             markdown_content_lines.append("\n# Included File Contents\n")
-            all_matched_files_data.sort(
-                key=lambda x: str(x["path"])
-            )  # Sort by string representation of path
             for file_data in all_matched_files_data:
-                path: Path = file_data["path"]  # path is a Path object
+                path: Path = file_data["path"]
                 try:
                     markdown_output = format_file_content_markdown(
                         file_data, self.config.root, get_file_content
@@ -366,21 +356,20 @@ class CtxCtxApp:
                         file_char_counts[path] = 0
                 except FileReadError as e:
                     logger.warning(f"Skipping file '{path}' due to read " f"error: {e}")
-                    # Use Path.relative_to()
                     markdown_content_lines.append(
                         f"**[FILE: /{path.relative_to(self.config.root)}]**"
                         f"\n```\n// Error reading file: {e}\n```"
                     )
                     file_char_counts[path] = None
                 except Exception as e:
-                    # Catch any other unexpected errors during formatting and raise
-                    # a specific exception
                     raise OutputFormattingError(
                         f"An unexpected error occurred formatting file '{path}': {e}",
                         file_path=str(path),
                     ) from e
         else:
-            markdown_content_lines.append("\n_No specific files included based on queries._\n")
+            markdown_content_lines.append(
+                "\n_No specific files included based on queries or rules._\n"
+            )
 
         return markdown_content_lines, json_files_data_list, file_char_counts
 
@@ -393,9 +382,12 @@ class CtxCtxApp:
         Constructs the final JSON output data structure including metadata.
         Calculates total character count for JSON.
         """
-        now_utc = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        now_utc = (
+            datetime.datetime.now(datetime.UTC)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z")
+        )
 
-        # Ensure paths in json_files_data_list are strings for JSON serialization
         serialized_json_files_data_list = []
         for item in json_files_data_list:
             copied_item = item.copy()
@@ -407,30 +399,23 @@ class CtxCtxApp:
             "directory_structure": tree_output,
             "details": {
                 "generated_at": now_utc,
-                "root_directory": str(self.config.root),  # Convert Path to str for JSON
+                "root_directory": str(self.config.root),
                 "queries_used": self.original_queries,
                 "tree_depth_limit": self.config.tree_max_depth,
                 "search_depth_limit": self.config.search_max_depth,
                 "files_included_count": len(serialized_json_files_data_list),
-                # total_characters_json will be added after this dict is built and stringified
             },
-            "files": serialized_json_files_data_list,  # Use serialized list
+            "files": serialized_json_files_data_list,
         }
 
-        # Calculate total_characters_json *after* the dict is fully formed
-        # (except for this field itself).
-        # We dump it to a string first to get its character length,
-        # then add that length back.
         temp_json_string_for_size = json.dumps(output_json_data, indent=2, ensure_ascii=False)
         output_json_data["details"]["total_characters_json"] = len(temp_json_string_for_size)
         return output_json_data
 
     def _log_summary(
         self,
-        unique_matched_paths: Set[Path],  # Changed Set[str] to Set[Path]
-        file_char_counts: Dict[
-            Path, Optional[int]
-        ],  # Changed Dict[str, Optional[int]] to Dict[Path, Optional[int]]
+        unique_matched_paths: Set[Path],
+        file_char_counts: Dict[Path, Optional[int]],
         output_json_data: Dict[str, Any],
         output_markdown_lines: List[str],
     ) -> None:
@@ -439,18 +424,17 @@ class CtxCtxApp:
             f"\n--- Matched Files Summary ({len(unique_matched_paths)} " "unique files) ---"
         )
         if unique_matched_paths:
-            for file_path in sorted(list(unique_matched_paths)):  # Still sorting Path objects
-                relative_path = file_path.relative_to(self.config.root)  # Use Path.relative_to()
+            for file_path in sorted(list(unique_matched_paths)):
+                relative_path = file_path.relative_to(self.config.root)
                 char_count = file_char_counts.get(file_path)
                 if char_count is not None:
                     logger.info(f"  - {relative_path} ({char_count} characters)")
                 else:
                     logger.info(f"  - {relative_path} (Content not available or error)")
         else:
-            logger.info("  No files included based on queries.")
+            logger.info("  No files included based on rules or queries.")
         logger.info("-" * 20)
 
-        # Calculate total chars for markdown for summary logging
         total_markdown_chars = len("".join(output_markdown_lines))
 
         logger.info(
@@ -475,9 +459,7 @@ class CtxCtxApp:
             print(json.dumps(output_json_data, indent=2, ensure_ascii=False))
             logger.info("\n🎯 Dry run complete. No files were written.")
         else:
-            # Removed success flag and sys.exit(1) here. OutputWriteError is now raised.
             for output_format in self.config.output_formats:
-                # self.config.output_file_base_name is a string. Combine with Path object.
                 output_filepath = Path(f"{self.config.output_file_base_name}.{output_format}")
                 try:
                     if output_format == "md":
@@ -495,25 +477,64 @@ class CtxCtxApp:
                         file_path=str(output_filepath),
                     ) from e
 
+    def _run_list_files(self) -> None:
+        """
+        Executes the 'list-files' mode. Collects all non-ignored files,
+        sorts them, and prints them to stdout with a helpful header.
+        Logs are directed to stderr to keep stdout clean.
+        """
+        logger.info("Mode: LIST FILES (listing all non-ignored files)")
+        all_project_files = self._collect_all_project_files()
+
+        if not all_project_files:
+            logger.warning("No files found after applying current ignore rules.")
+            return
+
+        relative_paths = sorted(
+            [p.relative_to(self.config.root).as_posix() for p in all_project_files]
+        )
+
+        print("# List of all non-ignored files found by ctxctx.", file=sys.stdout)
+        print(
+            "# To use this with ctxctx, save it to a file (e.g., 'cargs') and run: ctxctx @cargs",
+            file=sys.stdout,
+        )
+        print(
+            "# To exclude a file or directory, comment out its line (add '#') or delete it.",
+            file=sys.stdout,
+        )
+        print(
+            "# You can also add directory paths (e.g., src/utils/) or glob patterns (*.ts).\n",
+            file=sys.stdout,
+        )
+
+        for rel_path in relative_paths:
+            print(rel_path, file=sys.stdout)
+
+        logger.info(
+            f"\nListed {len(relative_paths)} file(s). "
+            "Redirect this output to a file to create an argument list for ctxctx."
+        )
+
     def run(self) -> None:
         """Executes the main application logic."""
-        # The main logic flow. All errors are now propagated up to cli.py's main function.
+        if self.args.list_files:
+            self._run_list_files()
+            return
+
         if self.args.dry_run:
             logger.info("Mode: DRY RUN (no files will be written)")
 
         tree_output = self._generate_project_structure()
-
-        # Perform the single, efficient file system walk
         all_project_files = self._collect_all_project_files()
 
-        # Process queries against the in-memory list of files
-        all_matched_files_data, unique_matched_paths = self._process_all_queries(all_project_files)
+        all_matched_files_data, unique_matched_paths = self._process_and_resolve_files(
+            all_project_files
+        )
 
-        output_markdown_lines: List[str] = [
-            f"# Project Structure for {self.config.root.name}\n"
-        ]  # Use .name for basename
-        if self.args.profile:
-            output_markdown_lines.append(f"**Profile:** `{self.args.profile}`\n")
+        output_markdown_lines: List[str] = [f"# Project Structure for {self.config.root.name}\n"]
+        if self.active_profiles:
+            output_markdown_lines.append(f"**Profile(s):** `{', '.join(self.active_profiles)}`\n")
         output_markdown_lines.append("```\n[DIRECTORY_STRUCTURE]\n")
         output_markdown_lines.append(tree_output)
         output_markdown_lines.append("```\n")

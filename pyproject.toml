@@ -1,6 +1,6 @@
 [project]
 name = "ctxctx"
-version = "0.3.8"
+version = "0.3.9"
 description = "Intelligently select, format, and present relevant project files and directory structure as context for LLMs."
 license = { text = "MIT" }
 readme = "README.md"
@@ -23,7 +23,7 @@ packages = [
     { include = "ctxctx" }
 ]
 dependencies = [
-    "gitignore-parser>=0.0.8",
+    "pathspec>=0.12.1",
     "PyYAML>=6.0"
 ]
 

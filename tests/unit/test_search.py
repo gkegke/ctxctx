@@ -1,11 +1,11 @@
 # tests/unit/test_search.py
 import os
-from pathlib import Path  # Added Path import
+from pathlib import Path
 from typing import Callable, List
 
 import pytest
 
-from ctxctx.config import Config, get_default_config  # Added Config import
+from ctxctx.config import Config, get_default_config
 from ctxctx.ignore import IgnoreManager
 from ctxctx.search import FORCE_INCLUDE_PREFIX, find_matches
 

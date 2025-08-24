@@ -83,14 +83,12 @@ def test_save_cache_when_disabled(temp_config: Config):
     cache.save_cache(temp_config, None, file_list)
 
     # Assert
-    # The cache path is in a clean temp dir, so it won't exist.
     assert not cache._get_cache_filepath(temp_config).exists()
 
 
 def test_load_cache_when_not_found(temp_config: Config):
     """Tests that load_cache returns None when the cache file doesn't exist."""
     # Arrange
-    # The temp_config fixture ensures a clean directory, so the file doesn't exist.
     assert not cache._get_cache_filepath(temp_config).exists()
 
     # Act
@@ -103,12 +101,10 @@ def test_load_cache_when_not_found(temp_config: Config):
 def test_load_cache_when_disabled(temp_config: Config):
     """Tests that load_cache returns None when caching is disabled in config."""
     # Arrange
-    # Save a valid cache file first
     file_list = [temp_config.root / "file1.py"]
     cache.save_cache(temp_config, None, file_list)
     assert cache._get_cache_filepath(temp_config).exists()
 
-    # Now, disable caching in the config
     temp_config.use_cache = False
 
     # Act

@@ -66,6 +66,7 @@ This results in **more focused, relevant, and accurate responses** from your LLM
       - [8. Pre-defined Context Profiles](#8-pre-defined-context-profiles)
       - [9. Output Formats (Markdown \& JSON)](#9-output-formats-markdown--json)
       - [10. Dry Run Mode](#10-dry-run-mode)
+      - [11. Discovering Files with --list-files](#11-discovering-files-with---list-files)
     - [⚙️ Configuration](#️-configuration)
     - [🪵 Logging Configuration](#-logging-configuration)
       - [Console Output](#console-output)
@@ -117,29 +118,18 @@ Crucial for large projects! The tool uses a robust ignore system to ensure you d
 *   **Automatic Gitignore:** By default, the script respects your project's `.gitignore` file.
 *   **Built-in Ignores:** Common build artifacts, temporary files, and environment directories (`node_modules`, `__pycache__`, `.venv`, `.git`, `.DS_Store`, etc.) are ignored automatically.
 *   **Additional Ignore Files:** The script also looks for other common ignore files like `.dockerignore`, `.npmignore`, and `.eslintignore` defined in `ADDITIONAL_IGNORE_FILENAMES`.
-*   **Script-Specific Ignores:** You can create a file named `prompt_builder_ignore.txt` in your project's root directory. Any patterns listed here will *always* be ignored, regardless of your project's `.gitignore`. This is useful for ignoring the tool's own output files or specific local configurations you never want to share.
-
-    Example `prompt_builder_ignore.txt`:
-    ```
-    # Ignore the script's own output
-    prompt_input_files.md
-    prompt_input_files.json
-    # Never include this local config
-    .env.local
-    # Ignore a specific test data folder
-    test_data/temp_files/
-    ```
+*   **ctxctx-Specific Ignores:** The tool automatically ignores its own configuration and output files (like `.ctxctx.yaml`, the `.ctxctx_cache/` directory, `prompt_input_files.md`, and `prompt_input_files.json`) by default. These are embedded directly in the tool's core configuration's `EXPLICIT_IGNORE_NAMES`. You can always add more explicit ignore patterns to your `.ctxctx.yaml` file if needed.
 
 #### 4. Force Including Files & Folders (Override Ignores)
 
-Sometimes, you want to include a file or folder that is normally ignored by `ctxctx`'s default rules, `.gitignore`, or your custom `prompt_builder_ignore.txt`. The "force include" feature allows you to explicitly override these ignore rules for specific paths.
+Sometimes, you want to include a file or folder that is normally ignored by `ctxctx`'s default rules, `.gitignore`, or your custom ignore rules in `.ctxctx.yaml`. The "force include" feature allows you to explicitly override these ignore rules for specific paths.
 
 *   **Syntax:** Prefix the file or folder path (or glob pattern) with `force:`.
     *   Example: `ctxctx 'force:path/to/file.js'`
 *   **How it works:** When `ctxctx` encounters a query starting with `force:`, it marks that path as "force included". During processing, if a file matches *any* ignore rule, `ctxctx` first checks if it's explicitly force-included. If it is, the file will be included in the context, regardless of other ignore patterns.
 
 *   **Important Nuance for Simple Filenames:**
-    When using `force:` followed by a *simple filename* (i.e., no directory separators like `/` or `\\`, and no glob wildcards like `*` or `?`), `ctxctx` will **only look for that file directly in the project's root directory**. This prevents unintended inclusion of identically named files deep within subdirectories, which is particularly useful for project-level files like `LICENSE` or `.gitignore`.
+    When using `force:` followed by a *simple filename* (i.e., no directory separators like `/` or `\\`, and no glob wildcards like `*` or `?`), `ctxctx` will **only look for that file directly in the project's root directory. If you want to force-include a simple filename that resides in a subdirectory, you must specify its full path or a glob pattern that includes its path (e.g., `force:src/config.py`).** This prevents unintended inclusion of identically named files deep within subdirectories, which is particularly useful for project-level files like `LICENSE` or `.gitignore`.
 
     *   **Example: `force:.gitignore`**
         If you have `/project/.gitignore` and `/project/frontend/.gitignore`, `ctxctx 'force:.gitignore'` will **only** include `/project/.gitignore`. If you wanted the one in `frontend/`, you would need to specify its path: `ctxctx 'force:frontend/.gitignore'`.
@@ -154,7 +144,7 @@ Sometimes, you want to include a file or folder that is normally ignored by `ctx
         ```bash
         ctxctx 'force:debug.log'
         ```
-        (Even if `*.log` is in your `.gitignore` or `debug.log` is in `prompt_builder_ignore.txt`, it will be included. If `debug.log` only exists in a subdirectory, this command will *not* find it, due to the nuance described above.)
+        (Even if `*.log` is in your `.gitignore` or `debug.log` is in your `.ctxctx.yaml` `EXPLICIT_IGNORE_NAMES`, it will be included. If `debug.log` only exists in a subdirectory, this command will *not* find it, due to the nuance described above.)
 
     *   **Force include a file inside an ignored directory:**
         ```bash
@@ -241,34 +231,49 @@ For very long or complex `ctxctx` commands, or for commands you use frequently, 
 
 #### 8. Pre-defined Context Profiles
 
-For common tasks, you can define **profiles** in an external `prompt_profiles.yaml` file. A profile can include a set of queries and override default configuration settings.
+For common tasks, you can define **profiles** within your main `.ctxctx.yaml` file to create reusable context definitions. Profiles now use a powerful funnel-based system:
 
-1.  **Create `prompt_profiles.yaml`** in your project's root directory:
+1.  **`include`**: A list of glob patterns that defines the initial set of files.
+2.  **`queries`**: (Optional) Ad-hoc queries (like specific files, line ranges, or `force:` includes) are added to the set.
+3.  **`exclude`**: (Optional) A list of glob patterns that removes files from the final set.
+
+This allows you to build broad contexts with `include` and then precisely refine them with `exclude` and `queries`.
+
+1.  **Define Profiles in your `.ctxctx.yaml` file** in your project's root directory:
     ```yaml
-    # prompt_profiles.yaml
-    profiles:
-      frontend:
-        queries:
-          - 'src/frontend/**/*.js'
-          - 'src/frontend/**/*.ts'
-          - 'package.json'
-        # Override default ignore patterns for this profile
-        substring_ignore_patterns:
-          - 'node_modules'
-          - 'dist'
-        # Override search depth for this profile
-        search_max_depth: 7
+    # .ctxctx.yaml
+    ROOT: .
+    OUTPUT_FILE_BASE_NAME: prompt_input_files
+    OUTPUT_FORMATS:
+    - md
+    - json
+    TREE_MAX_DEPTH: 3
+    # ... other global settings ...
 
+    profiles: # Profiles are now a top-level key in .ctxctx.yaml
       backend_api:
+        description: "Core backend API files, excluding tests and configs."
+        include:
+          - 'src/server/**/*.py'  # All python files under src/server
+        exclude:
+          - 'src/server/tests/**'   # Exclude the test subdirectory
+          - 'src/server/config.py' # Exclude the config file
         queries:
-          - 'src/server/**/*.py'
-          - 'requirements.txt'
-        # Adjust tree depth for backend context
+          - 'requirements.txt'      # Explicitly add the requirements file
+
+      frontend_component:
+        description: "Focus on a specific component, its styles, and tests."
+        include:
+          - 'src/components/UserProfile/**' # All files for the component
+        exclude:
+          - 'src/components/UserProfile/**/*.snap' # Exclude snapshots
+        # Override a global config setting just for this profile
         tree_max_depth: 4
 
       refactor_task:
+        description: "A specific refactoring task with precise line numbers."
         queries:
-          # Focus on specific parts of these files for a refactor
+          # Use 'queries' when you only need a few specific files/ranges
           - 'src/data/processor.py:10,45:100,120'
           - 'src/utils/helpers.py:1,30'
           - 'tests/test_processor.py'
@@ -279,9 +284,9 @@ For common tasks, you can define **profiles** in an external `prompt_profiles.ya
     ctxctx --profile backend_api
     ctxctx --profile refactor_task
     ```
-    You can also combine profiles with additional ad-hoc queries:
+    You can also combine profiles with additional ad-hoc queries from the command line:
     ```bash
-    ctxctx --profile frontend 'public/index.html'
+    ctxctx --profile frontend_component 'public/index.html'
     ```
 
 #### 9. Output Formats (Markdown & JSON)
@@ -291,7 +296,7 @@ The tool generates two output files by default (`prompt_input_files.md` and `pro
 *   **Markdown (`.md`):** Human-readable, includes directory tree, and uses Markdown code blocks with syntax highlighting hints for file contents. Great for reviewing the context yourself before sending it, or for models that prefer structured text.
 *   **JSON (`.json`):** Machine-readable structured data. Contains the directory tree as a string and an array of file objects, each with path, content, and any line/function details. Ideal for programmatic use or models that perform better with structured JSON input.
 
-You can configure which formats are generated in the `CONFIG` dictionary (or via a profile).
+You can configure which formats are generated in your `.ctxctx.yaml` file (or via a profile).
 
 #### 10. Dry Run Mode
 
@@ -301,11 +306,35 @@ Test your queries and configurations without writing any files. The full output 
 ctxctx --dry-run 'src/config.py' '*.md'
 ```
 
+#### 11. Discovering Files with --list-files
+
+When you need to select from a large number of files, the `--list-files` command simplifies the process. It prints a clean, sorted list of all files that `ctxctx` can see after applying all ignore rules (from `.gitignore`, `.ctxctx.yaml` `EXPLICIT_IGNORE_NAMES`, etc.).
+
+Its primary use is to generate an **argument file** that you can edit and pass back to `ctxctx`.
+
+*   **How it works:**
+    1.  Generate a list of all potential files. The command directs logs to `stderr`, so you can safely redirect the output.
+        ```bash
+        ctxctx --list-files > my_context.txt
+        ```
+    2.  Open `my_context.txt` in your editor. Comment out (`#`) or delete the lines for files you wish to exclude.
+    3.  Feed the curated list back into `ctxctx` using the `@` prefix.
+        ```bash
+        ctxctx @my_context.txt
+        ```
+
+*   **Combining with Profiles:** You can also use it with profiles to see exactly what files a profile includes, providing a great starting point for a more specific context.
+    ```bash
+    ctxctx --profile backend_api --list-files > backend_files.txt
+    # Now edit backend_files.txt and run:
+    ctxctx @backend_files.txt
+    ```
+
 ---
 
 ### ⚙️ Configuration
 
-The tool's behavior can be customized by modifying the `DEFAULT_CONFIG` dictionary within `ctxctx/config.py` (for source changes) or overridden by values defined in your `prompt_profiles.yaml`.
+The tool's behavior can be customized by creating a `.ctxctx.yaml` file in your project's root directory. Any values defined in this file will override the tool's defaults. Additionally, profiles can override these global settings.
 
 Key configurable options include:
 
@@ -313,15 +342,16 @@ Key configurable options include:
 *   `OUTPUT_FILE_BASE_NAME`: Base name for output files (e.g., `prompt_input_files`).
 *   `OUTPUT_FORMATS`: List of desired output formats (`markdown`, `json`).
 *   `TREE_MAX_DEPTH`: Maximum recursion depth for the directory tree view.
+*   `TREE_EXCLUDE_EMPTY_DIRS`: If `true`, empty directories (after applying ignore rules) will not be included in the tree.
 *   `SEARCH_MAX_DEPTH`: Maximum recursion depth for file content search.
 *   `MAX_MATCHES_PER_QUERY`: Max number of files a single query can return before an error is raised (prevents accidental large inclusions).
-*   `EXPLICIT_IGNORE_NAMES`: A set of exact file/folder names or relative paths to always ignore.
+*   `EXPLICIT_IGNORE_NAMES`: A set of exact file/folder names or relative paths to always ignore. **This now includes the tool's internal output and cache files by default.** You can add your own custom ignore names here.
 *   `SUBSTRING_IGNORE_PATTERNS`: A list of substrings that, if found anywhere in a file's relative path, will cause it to be ignored.
+*   `ADDITIONAL_IGNORE_FILENAMES`: List of other ignore files (e.g., `.dockerignore`) to load in addition to `.gitignore`.
+*   `DEFAULT_CONFIG_FILENAME`: The name of the main configuration file (defaults to `.ctxctx.yaml`).
 *   `USE_GITIGNORE`: Boolean to enable/disable `.gitignore` integration.
 *   `GITIGNORE_PATH`: Relative path to your main `.gitignore` file.
-*   `ADDITIONAL_IGNORE_FILENAMES`: List of other ignore files (e.g., `.dockerignore`) to load.
-*   `SCRIPT_DEFAULT_IGNORE_FILE`: Name of the script-specific ignore file (defaults to `prompt_builder_ignore.txt`).
-*   `PROFILE_CONFIG_FILE`: Path to your external YAML profile configuration.
+*   `USE_CACHE`: Boolean to enable/disable caching of the project's file list.
 
 ---
 
@@ -376,7 +406,7 @@ Areas for future improvement include:
 
 
 Performance improvements being considered IF real world usage calls for it (increases codebase complexity):
-*   **Local Cache for Project File List and Content Hashes** Reduce need for repeated full walk -- a minor bottleneck.
+*   **Content Change Detection for Cache:** Currently, the cache only tracks file *list* changes based on config/ignore file mtimes. Adding content hashing could make cache invalidation more precise.
 *   **Parallel File Content Reading**
 
 ### 📄 License

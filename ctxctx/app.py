@@ -377,17 +377,12 @@ class CtxCtxApp:
         self,
         tree_output: str,
         json_files_data_list: List[Dict[str, Any]],
+        now_utc_iso: str,
     ) -> Dict[str, Any]:
         """
         Constructs the final JSON output data structure including metadata.
         Calculates total character count for JSON.
         """
-        now_utc = (
-            datetime.datetime.now(datetime.UTC)
-            .isoformat(timespec="seconds")
-            .replace("+00:00", "Z")
-        )
-
         serialized_json_files_data_list = []
         for item in json_files_data_list:
             copied_item = item.copy()
@@ -398,7 +393,7 @@ class CtxCtxApp:
         output_json_data: Dict[str, Any] = {
             "directory_structure": tree_output,
             "details": {
-                "generated_at": now_utc,
+                "generated_at": now_utc_iso,
                 "root_directory": str(self.config.root),
                 "queries_used": self.original_queries,
                 "tree_depth_limit": self.config.tree_max_depth,
@@ -525,6 +520,10 @@ class CtxCtxApp:
         if self.args.dry_run:
             logger.info("Mode: DRY RUN (no files will be written)")
 
+        now_utc = datetime.datetime.now(datetime.UTC)
+        now_utc_iso = now_utc.isoformat(timespec="seconds").replace("+00:00", "Z")
+        now_utc_human_readable = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+
         tree_output = self._generate_project_structure()
         all_project_files = self._collect_all_project_files()
 
@@ -533,6 +532,7 @@ class CtxCtxApp:
         )
 
         output_markdown_lines: List[str] = [f"# Project Structure for {self.config.root.name}\n"]
+        output_markdown_lines.append(f"**Generated at:** `{now_utc_human_readable}`\n")
         if self.active_profiles:
             output_markdown_lines.append(f"**Profile(s):** `{', '.join(self.active_profiles)}`\n")
         output_markdown_lines.append("```\n[DIRECTORY_STRUCTURE]\n")
@@ -544,7 +544,9 @@ class CtxCtxApp:
         )
         output_markdown_lines.extend(markdown_content_lines)
 
-        output_json_data = self._build_final_json_data(tree_output, json_files_data_list)
+        output_json_data = self._build_final_json_data(
+            tree_output, json_files_data_list, now_utc_iso
+        )
 
         self._log_summary(
             unique_matched_paths, file_char_counts, output_json_data, output_markdown_lines
